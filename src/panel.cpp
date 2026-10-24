@@ -1,4 +1,4 @@
-// Lost Island Settings: the control panel window.
+// Loop Island Settings: the control panel window.
 // Everything is custom drawn with Direct2D in the style of macOS System
 // Settings (dark appearance). The UI is immediate mode: each paint draws the
 // page and records clickable regions ("hots"); mouse and keyboard handlers act
@@ -36,8 +36,8 @@ constexpr float kStartW = 720, kStartH = 560, kMinW = 640, kMinH = 480;
 constexpr UINT_PTR kAnimTimer = 1, kCaretTimer = 2;
 constexpr float kSwitchMs = 120;
 
-constexpr Color kSidebarBg = Color::Hex(0x262628);
-constexpr Color kContentBg = Color::Hex(0x1E1E1E);
+constexpr Color kSidebarBg = Color::Hex(0x1C1F26);
+constexpr Color kContentBg = Color::Hex(0x14161C);
 constexpr Color kBoxFill(1, 1, 1, 0.05f);
 constexpr Color kBoxLine(1, 1, 1, 0.08f);
 constexpr Color kSep(1, 1, 1, 0.08f);
@@ -83,7 +83,7 @@ const PageDef kPages[] = {
     {L"island", L"Island", L"island", 0x0A84FF,
      L"shape island notch pill face windows logo clock weather display primary follows pointer monitor distance from top size scale", 0},
     {L"appearance", L"Appearance", L"palette", 0xBF5AF2,
-     L"accent color card style black graphite 24-hour clock show seconds eq bars music", 0},
+     L"accent color card style midnight black graphite adaptive color 24-hour clock show seconds eq bars music", 0},
     {L"controls", L"Controls", L"grid", 0xFF9F0A,
      L"in the card available launchers wi-fi bluetooth sound mic focus dark cast screenshot clipboard lock timer wallpaper wallpapers folder fill fit", 0},
     {L"activities", L"Live Activities", L"sparkles", 0xFF375F,
@@ -384,7 +384,7 @@ void ButtonAt(const std::wstring& key, const std::wstring& label, D2D1_RECT_F r,
     else if (Hovered(key)) base = primary ? base.mix(kWhite, 0.12f) : Color(1, 1, 1, 0.17f);
     C().FillRound(r, 6, base);
     C().StrokeRound(Inset(r, 0.5f, 0.5f), 6, Color(1, 1, 1, 0.06f));
-    C().Text(label, r, 13, kWhite, kRegular, Align::Center);
+    C().Text(label, r, 13, primary ? pal::onAccent() : kWhite, kRegular, Align::Center);
     AddHot(r, key, Cur::Hand, std::move(click));
 }
 
@@ -597,7 +597,7 @@ Row PopupRow(const std::wstring& title, const std::wstring& sub, const Options& 
 void PageGeneral() {
     Row start;
     start.title = L"Start with Windows";
-    start.subtitle = L"Open Lost Island when you sign in";
+    start.subtitle = L"Open Loop Island when you sign in";
     start.trailing = [](D2D1_RECT_F rr) {
         SwitchCtl(L"sw:start", S.startWithWindows, rr.right, Mid(rr), [] {
             S.startWithWindows = !S.startWithWindows;
@@ -627,7 +627,7 @@ void PageGeneral() {
     reset.subtitle = L"Restore the defaults, including the card layout";
     reset.trailing = [](D2D1_RECT_F rr) {
         ButtonCtl(L"btn:reset", L"Reset…", rr.right, Mid(rr), false, [] {
-            if (MessageBoxW(S.hwnd, L"Reset all Lost Island settings to their defaults?", L"Lost Island",
+            if (MessageBoxW(S.hwnd, L"Reset all Loop Island settings to their defaults?", L"Loop Island",
                             MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
                 return;
             g_config.Reset();
@@ -658,10 +658,8 @@ void MaskCorners(D2D1_RECT_F r, float rad, Color bg) {
         if (FAILED(g_gfx.d2d->CreatePathGeometry(&g)) || FAILED(g->Open(&k))) { SafeRelease(g); continue; }
         k->BeginFigure(D2D1::Point2F(sx[i], sy[i]), D2D1_FIGURE_BEGIN_FILLED);
         k->AddLine(D2D1::Point2F(sx[i] + dx * rad, sy[i]));
-        bool cw = (dx * dy) < 0;
-        k->AddArc(D2D1::ArcSegment(D2D1::Point2F(sx[i], sy[i] + dy * rad), D2D1::SizeF(rad, rad), 0,
-                                   cw ? D2D1_SWEEP_DIRECTION_CLOCKWISE : D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
-                                   D2D1_ARC_SIZE_SMALL));
+        AddArcTo(k, D2D1::Point2F(sx[i] + dx * rad, sy[i]), D2D1::Point2F(sx[i], sy[i] + dy * rad),
+                 D2D1::Point2F(sx[i] + dx * rad, sy[i] + dy * rad), rad, (dx * dy) < 0);
         k->EndFigure(D2D1_FIGURE_END_CLOSED);
         k->Close();
         C().FillGeometry(g, bg);
@@ -684,7 +682,10 @@ void IslandPreview() {
     float top = box.top + (notch ? 0 : g_config.offsetY * 0.62f);
     D2D1_RECT_F pill = Rect(cx - pw / 2, top, pw, ph);
     if (notch) C().FillNotch(pill, ph * 0.42f, 6, Color(0, 0, 0, 1));
-    else C().FillRound(pill, ph / 2, Color(0, 0, 0, 1));
+    else {
+        C().FillRound(pill, ph / 2, Color(0, 0, 0, 1));
+        if (g_config.adaptive) C().StrokeRound(Inset(pill, 0.5f, 0.5f), ph / 2, Color::Hex(0xC9C4F0, 0.22f));
+    }
     float fs = 13 * k * 1.25f;
     float pad = ph * 0.55f;
     if (g_config.face == L"weather") {
@@ -734,13 +735,17 @@ void PageAppearance() {
     style.title = L"Card style";
     style.subtitle = L"Background of the expanded card";
     style.trailing = [](D2D1_RECT_F rr) {
-        SegCtl(L"seg:style", {L"Black", L"Graphite"}, g_config.cardStyle == L"graphite" ? 1 : 0, rr.right, Mid(rr),
-               [](int i) {
-                   g_config.cardStyle = i == 1 ? L"graphite" : L"black";
-                   Changed();
-               });
+        static const wchar_t* styles[] = {L"midnight", L"black", L"graphite"};
+        int sel = 0;
+        for (int i = 0; i < 3; i++) if (g_config.cardStyle == styles[i]) sel = i;
+        SegCtl(L"seg:style", {L"Midnight", L"Black", L"Graphite"}, sel, rr.right, Mid(rr), [](int i) {
+            g_config.cardStyle = styles[i];
+            Changed();
+        });
     };
-    Group({accent, style});
+    Group({accent, style,
+           ToggleRow(L"Adaptive island color", L"Edge and glow follow the colors behind it",
+                     &g_config.adaptive)});
     Section(L"Clock");
     Group({ToggleRow(L"24-hour clock", L"", &g_config.clock24), ToggleRow(L"Show seconds", L"", &g_config.showSeconds)});
     Section(L"Island");
@@ -1008,21 +1013,21 @@ void PageAbout() {
     DrawWindowsMark(C(), pill.left + 7, Mid(pill), 5.5f, Color::Hex(0x4CC2FF));
     S.y = top + 96;
     float bw = BoxWidth();
-    C().Text(L"Lost Island", Rect(BoxLeft(), S.y, bw, 28), 22, pal::ink, kBold, Align::Center);
+    C().Text(L"Loop Island", Rect(BoxLeft(), S.y, bw, 28), 22, pal::ink, kBold, Align::Center);
     S.y += 30;
     C().Text(L"Version " LI_VERSION, Rect(BoxLeft(), S.y, bw, 18), 12, pal::ink2, kRegular, Align::Center);
     S.y += 26;
-    S.y += Paragraph(L"A Dynamic Island for Windows, written in C++ with Direct2D.", BoxLeft(), S.y, bw, 13, pal::ink,
+    S.y += Paragraph(L"A Dynamic Island for Windows and Linux (via Wine), written in C++ with Direct2D.", BoxLeft(), S.y, bw, 13, pal::ink,
                      kRegular, true) +
            18;
     float w1 = ButtonWidth(L"GitHub"), w2 = ButtonWidth(L"Report an issue");
     float bx = cx - (w1 + w2 + 10) / 2;
     ButtonAt(L"btn:github", L"GitHub", Rect(bx, S.y, w1, 24), false,
-             [] { sys::OpenUri(L"https://github.com/byte4day/lost-island-windows"); });
+             [] { sys::OpenUri(L"https://github.com/669px/loop-island"); });
     ButtonAt(L"btn:issue", L"Report an issue", Rect(bx + w1 + 10, S.y, w2, 24), false,
-             [] { sys::OpenUri(L"https://github.com/byte4day/lost-island-windows/issues"); });
+             [] { sys::OpenUri(L"https://github.com/669px/loop-island/issues"); });
     S.y += 24 + 28;
-    S.y += Paragraph(L"Based on Lost Island for Sway by byte4day, itself based on Marco Zorn's Lost Island (MIT).",
+    S.y += Paragraph(L"Made by 669px. Open source under the MIT License.",
                      BoxLeft(), S.y, bw, 11, pal::ink3, kRegular, true) +
            8;
 }
@@ -1100,7 +1105,7 @@ void DrawSidebar() {
         if (sel) C().FillRound(r, 6, pal::accent());
         else if (Hovered(key)) C().FillRound(r, 6, Color(1, 1, 1, 0.06f));
         Tile(Rect(r.left + 6, r.top + 4, 20, 20), kPages[i].tile, kPages[i].icon, 5);
-        C().Text(kPages[i].label, D2D1::RectF(r.left + 34, r.top, r.right - 6, r.bottom), 13, sel ? kWhite : pal::ink);
+        C().Text(kPages[i].label, D2D1::RectF(r.left + 34, r.top, r.right - 6, r.bottom), 13, sel ? pal::onAccent() : pal::ink);
         AddHot(r, key, Cur::Arrow, [i] {
             S.focus = Focus::Sidebar;
             SetPage(i);
@@ -1153,7 +1158,7 @@ void Paint() {
     DrawContent();
     DrawSidebar();
     HRESULT hr = S.rt->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET) {
+    if (hr == (HRESULT)D2DERR_RECREATE_TARGET) {
         ReleaseTarget();
         Invalidate();
         return;
@@ -1505,7 +1510,7 @@ void Create(int page) {
         wc.hIconSm = wc.hIcon;
         wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
         wc.hbrBackground = CreateSolidBrush(RGB(30, 30, 30));
-        wc.lpszClassName = L"LostIslandSettings";
+        wc.lpszClassName = L"LoopIslandSettings";
         registered = RegisterClassExW(&wc) != 0;
     }
     const DWORD style = WS_OVERLAPPEDWINDOW;
@@ -1514,7 +1519,7 @@ void Create(int page) {
     MONITORINFO mi{sizeof(mi)};
     GetMonitorInfoW(MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY), &mi);
     RECT work = mi.rcWork;
-    HWND hwnd = CreateWindowExW(0, L"LostIslandSettings", L"Lost Island Settings", style, work.left + 40,
+    HWND hwnd = CreateWindowExW(0, L"LoopIslandSettings", L"Loop Island Settings", style, work.left + 40,
                                 work.top + 40, 200, 200, nullptr, nullptr, inst, nullptr);
     if (!hwnd) return;
     S.hwnd = hwnd;

@@ -65,19 +65,24 @@ const std::vector<std::wstring>& DefaultLaunchers() {
     return v;
 }
 
-// macOS System Settings accent colors (dark appearance values).
+// Lagoon first, then the macOS System Settings accents (dark appearance values).
 const std::vector<AccentDef>& AllAccents() {
     static const std::vector<AccentDef> v = {
-        {L"blue", L"Blue", 0x0A84FF},   {L"purple", L"Purple", 0xBF5AF2}, {L"pink", L"Pink", 0xFF375F},
+        {L"lagoon", L"Lagoon", 0x2FD3C1}, {L"blue", L"Blue", 0x0A84FF},   {L"purple", L"Purple", 0xBF5AF2}, {L"pink", L"Pink", 0xFF375F},
         {L"red", L"Red", 0xFF453A},     {L"orange", L"Orange", 0xFF9F0A}, {L"yellow", L"Yellow", 0xFFD60A},
         {L"green", L"Green", 0x30D158}, {L"graphite", L"Graphite", 0x98989D},
     };
     return v;
 }
 
+const AccentDef* FindAccent(const std::wstring& id) {
+    for (auto& a : AllAccents()) if (id == a.id) return &a;
+    return nullptr;
+}
+
 unsigned AccentRGB(const std::wstring& id) {
-    for (auto& a : AllAccents()) if (id == a.id) return a.rgb;
-    return 0x0A84FF;
+    const AccentDef* a = FindAccent(id);
+    return a ? a->rgb : AllAccents().front().rgb;
 }
 
 std::wstring Config::Path() { return sys::ConfigDir() + L"\\config.json"; }
@@ -118,8 +123,9 @@ void Config::Load() {
     flag("hover_open", hoverOpen);
     flag("hide_fullscreen", hideFullscreen);
     flag("reduced_motion", reducedMotion);
-    str("accent", accent, {L"blue", L"purple", L"pink", L"red", L"orange", L"yellow", L"green", L"graphite"});
-    str("card_style", cardStyle, {L"black", L"graphite"});
+    if (FindAccent(v["accent"].asWString())) accent = v["accent"].asWString();
+    str("card_style", cardStyle, {L"midnight", L"black", L"graphite"});
+    flag("adaptive_color", adaptive);
     flag("clock_24h", clock24);
     flag("show_seconds", showSeconds);
     flag("show_eq", showEq);
@@ -156,6 +162,7 @@ void Config::Save() const {
     v.set("reduced_motion", reducedMotion);
     v.set("accent", accent);
     v.set("card_style", cardStyle);
+    v.set("adaptive_color", adaptive);
     v.set("clock_24h", clock24);
     v.set("show_seconds", showSeconds);
     v.set("show_eq", showEq);

@@ -10,6 +10,22 @@ Gfx g_gfx;
 
 Color pal::accent() { return Color::Hex(AccentRGB(g_config.accent)); }
 
+Color pal::onAccent() {
+    Color a = accent();
+    return 0.2126f * a.r + 0.7152f * a.g + 0.0722f * a.b > 0.55f ? Color::Hex(0x0B1A1C) : ink;
+}
+
+Color pal::cardTop() {
+    if (g_config.cardStyle == L"graphite") return Color::Hex(0x24262C);
+    if (g_config.cardStyle == L"black") return Color(0, 0, 0, 1);
+    return Color::Hex(0x151922);
+}
+Color pal::cardBottom() {
+    if (g_config.cardStyle == L"graphite") return Color::Hex(0x1A1C21);
+    if (g_config.cardStyle == L"black") return Color(0, 0, 0, 1);
+    return Color::Hex(0x090B10);
+}
+
 static bool fontExists(IDWriteFontCollection* fc, const wchar_t* name) {
     UINT32 index;
     BOOL exists = FALSE;
@@ -23,6 +39,7 @@ bool Gfx::Init() {
         return false;
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))))
         return false;
+    wine = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr;
     IDWriteFontCollection* fc = nullptr;
     dw->GetSystemFontCollection(&fc, FALSE);
     family = L"Segoe UI";
@@ -37,6 +54,28 @@ bool Gfx::Init() {
     return true;
 }
 
+void AddArcTo(ID2D1GeometrySink* sink, D2D1_POINT_2F from, D2D1_POINT_2F to, D2D1_POINT_2F center, float radius,
+              bool clockwise) {
+    constexpr float kTau = 6.2831853f;
+    float a0 = std::atan2(from.y - center.y, from.x - center.x);
+    float a1 = std::atan2(to.y - center.y, to.x - center.x);
+    float sweep = a1 - a0;   // y points down, so clockwise is a growing angle
+    if (clockwise) { while (sweep <= 0) sweep += kTau; }
+    else { while (sweep >= 0) sweep -= kTau; }
+    if (!g_gfx.wine) {
+        sink->AddArc(D2D1::ArcSegment(to, D2D1::SizeF(radius, radius), 0,
+                                      clockwise ? D2D1_SWEEP_DIRECTION_CLOCKWISE : D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
+                                      std::fabs(sweep) > kTau / 2 ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL));
+        return;
+    }
+    int n = std::clamp((int)std::ceil(std::fabs(sweep) * std::sqrt(std::max(radius, 1.f)) * 2), 3, 128);
+    for (int i = 1; i < n; i++) {
+        float a = a0 + sweep * i / n;
+        sink->AddLine(D2D1::Point2F(center.x + radius * std::cos(a), center.y + radius * std::sin(a)));
+    }
+    sink->AddLine(to);
+}
+
 void Gfx::Shutdown() {
     SafeRelease(wic);
     SafeRelease(dw);
@@ -47,7 +86,7 @@ void Gfx::Shutdown() {
 void Image::Reset() {
     SafeRelease(bmp);
     SafeRelease(src);
-    owner = nullptr;
+    owner = 0;
     w = h = 0;
 }
 
@@ -145,11 +184,11 @@ bool Image::FromPixels(UINT pw, UINT ph, const std::vector<uint8_t>& pbgra) {
     return true;
 }
 
-ID2D1Bitmap* Image::For(ID2D1RenderTarget* rt) {
+ID2D1Bitmap* Image::For(ID2D1RenderTarget* rt, uint64_t generation) {
     if (!src) return nullptr;
-    if (bmp && owner == rt) return bmp;
+    if (bmp && owner == generation) return bmp;
     SafeRelease(bmp);
-    owner = rt;
+    owner = generation;
     rt->CreateBitmapFromWicBitmap(src, nullptr, &bmp);
     return bmp;
 }
@@ -161,16 +200,25 @@ void Canvas::Attach(ID2D1RenderTarget* rt) {
     if (rt == rt_) return;
     SafeRelease(brush_);
     SafeRelease(roundCap_);
+    SafeRelease(tabular_);
     for (auto& kv : formats_) kv.second->Release();
     formats_.clear();
+    for (auto& kv : gradients_) kv.second->Release();
+    gradients_.clear();
+    widths_.clear();
     for (auto* l : layers_) l->Release();
     layers_.clear();
     rt_ = rt;
+    static uint64_t counter = 0;
+    gen_ = rt ? ++counter : 0;
     if (rt_) {
         rt_->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 1), &brush_);
         D2D1_STROKE_STYLE_PROPERTIES sp = D2D1::StrokeStyleProperties(
             D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
         g_gfx.d2d->CreateStrokeStyle(sp, nullptr, 0, &roundCap_);
+        // tabular figures so clocks and timers don't wobble
+        if (SUCCEEDED(g_gfx.dw->CreateTypography(&tabular_)))
+            tabular_->AddFontFeature({DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES, 1});
     }
 }
 
@@ -210,9 +258,7 @@ void Canvas::Arc(float cx, float cy, float rad, float startDeg, float sweepDeg, 
     ID2D1GeometrySink* s = nullptr;
     if (FAILED(g_gfx.d2d->CreatePathGeometry(&g)) || FAILED(g->Open(&s))) { SafeRelease(g); return; }
     s->BeginFigure(pt(startDeg), D2D1_FIGURE_BEGIN_HOLLOW);
-    s->AddArc(D2D1::ArcSegment(pt(startDeg + sweepDeg), D2D1::SizeF(rad, rad), 0,
-                               sweepDeg > 0 ? D2D1_SWEEP_DIRECTION_CLOCKWISE : D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
-                               std::fabs(sweepDeg) > 180 ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL));
+    AddArcTo(s, pt(startDeg), pt(startDeg + sweepDeg), D2D1::Point2F(cx, cy), rad, sweepDeg > 0);
     s->EndFigure(D2D1_FIGURE_END_OPEN);
     s->Close();
     rt_->DrawGeometry(g, Brush(c), width, round ? roundCap_ : nullptr);
@@ -225,43 +271,68 @@ void Canvas::StrokeGeometry(ID2D1Geometry* g, Color c, float width, bool round) 
     rt_->DrawGeometry(g, Brush(c), width, round ? roundCap_ : nullptr);
 }
 
-void Canvas::FillNotch(D2D1_RECT_F r, float radius, float flare, Color c) {
+void Canvas::FillNotchBrush(D2D1_RECT_F r, float radius, float flare, ID2D1Brush* b) {
     float w = r.right - r.left, h = r.bottom - r.top;
     radius = std::min({radius, w / 2, h});
     ID2D1PathGeometry* g = nullptr;
     ID2D1GeometrySink* s = nullptr;
     if (FAILED(g_gfx.d2d->CreatePathGeometry(&g)) || FAILED(g->Open(&s))) { SafeRelease(g); return; }
     float L = r.left, R = r.right, T = r.top, B = r.bottom;
-    s->BeginFigure(D2D1::Point2F(L - flare, T), D2D1_FIGURE_BEGIN_FILLED);
+    auto P = [](float x, float y) { return D2D1::Point2F(x, y); };
+    s->BeginFigure(P(L - flare, T), D2D1_FIGURE_BEGIN_FILLED);
     // concave flare into the top edge, like the MacBook notch
-    s->AddArc(D2D1::ArcSegment(D2D1::Point2F(L, T + flare), D2D1::SizeF(flare, flare), 0,
-                               D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
-    s->AddLine(D2D1::Point2F(L, B - radius));
-    s->AddArc(D2D1::ArcSegment(D2D1::Point2F(L + radius, B), D2D1::SizeF(radius, radius), 0,
-                               D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
-    s->AddLine(D2D1::Point2F(R - radius, B));
-    s->AddArc(D2D1::ArcSegment(D2D1::Point2F(R, B - radius), D2D1::SizeF(radius, radius), 0,
-                               D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
-    s->AddLine(D2D1::Point2F(R, T + flare));
-    s->AddArc(D2D1::ArcSegment(D2D1::Point2F(R + flare, T), D2D1::SizeF(flare, flare), 0,
-                               D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+    AddArcTo(s, P(L - flare, T), P(L, T + flare), P(L - flare, T + flare), flare, true);
+    s->AddLine(P(L, B - radius));
+    AddArcTo(s, P(L, B - radius), P(L + radius, B), P(L + radius, B - radius), radius, false);
+    s->AddLine(P(R - radius, B));
+    AddArcTo(s, P(R - radius, B), P(R, B - radius), P(R - radius, B - radius), radius, false);
+    s->AddLine(P(R, T + flare));
+    AddArcTo(s, P(R, T + flare), P(R + flare, T), P(R + flare, T + flare), flare, true);
     s->EndFigure(D2D1_FIGURE_END_CLOSED);
     s->Close();
-    rt_->FillGeometry(g, Brush(c));
+    rt_->FillGeometry(g, b);
     s->Release();
     g->Release();
 }
 
+void Canvas::FillNotch(D2D1_RECT_F r, float radius, float flare, Color c) { FillNotchBrush(r, radius, flare, Brush(c)); }
+void Canvas::FillNotchV(D2D1_RECT_F r, float radius, float flare, Color top, Color bottom) {
+    if (ID2D1Brush* b = GradientV(r, top, bottom)) FillNotchBrush(r, radius, flare, b);
+}
+
+static uint64_t packColor(Color c) {
+    auto q = [](float v) { return (uint64_t)(std::clamp(v, 0.f, 1.f) * 65535.f + 0.5f); };
+    return q(c.r) << 48 | q(c.g) << 32 | q(c.b) << 16 | q(c.a);
+}
+
+// One brush per pair of colours, moved to each rectangle it paints.
+ID2D1Brush* Canvas::GradientV(D2D1_RECT_F r, Color top, Color bottom) {
+    auto key = std::make_pair(packColor(top), packColor(bottom));
+    auto it = gradients_.find(key);
+    if (it == gradients_.end()) {
+        if (gradients_.size() > 32) {
+            for (auto& kv : gradients_) kv.second->Release();
+            gradients_.clear();
+        }
+        D2D1_GRADIENT_STOP stops[2] = {{0, top.d2d()}, {1, bottom.d2d()}};
+        ID2D1GradientStopCollection* col = nullptr;
+        ID2D1LinearGradientBrush* br = nullptr;
+        if (SUCCEEDED(rt_->CreateGradientStopCollection(stops, 2, &col)))
+            rt_->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties(D2D1::Point2F(), D2D1::Point2F(0, 1)), col, &br);
+        SafeRelease(col);
+        if (!br) return nullptr;
+        it = gradients_.emplace(key, br).first;
+    }
+    it->second->SetStartPoint(D2D1::Point2F(0, r.top));
+    it->second->SetEndPoint(D2D1::Point2F(0, r.bottom));
+    return it->second;
+}
+
 void Canvas::LinearV(D2D1_RECT_F r, float radius, Color top, Color bottom) {
-    D2D1_GRADIENT_STOP stops[2] = {{0, top.d2d()}, {1, bottom.d2d()}};
-    ID2D1GradientStopCollection* col = nullptr;
-    ID2D1LinearGradientBrush* br = nullptr;
-    if (SUCCEEDED(rt_->CreateGradientStopCollection(stops, 2, &col)) &&
-        SUCCEEDED(rt_->CreateLinearGradientBrush(
-            D2D1::LinearGradientBrushProperties(D2D1::Point2F(0, r.top), D2D1::Point2F(0, r.bottom)), col, &br)))
-        rt_->FillRoundedRectangle(D2D1::RoundedRect(r, radius, radius), br);
-    SafeRelease(br);
-    SafeRelease(col);
+    ID2D1Brush* b = GradientV(r, top, bottom);
+    if (!b) return;
+    radius = std::min(radius, std::min(r.right - r.left, r.bottom - r.top) / 2);
+    rt_->FillRoundedRectangle(D2D1::RoundedRect(r, radius, radius), b);
 }
 
 IDWriteTextFormat* Canvas::Format(float size, DWRITE_FONT_WEIGHT w, Align a, bool mono) {
@@ -285,48 +356,45 @@ IDWriteTextFormat* Canvas::Format(float size, DWRITE_FONT_WEIGHT w, Align a, boo
     return f;
 }
 
+IDWriteTextLayout* Canvas::Layout(const std::wstring& s, IDWriteTextFormat* f, float w, float h) {
+    IDWriteTextLayout* layout = nullptr;
+    if (FAILED(g_gfx.dw->CreateTextLayout(s.c_str(), (UINT32)s.size(), f, std::max(1.f, w), std::max(1.f, h), &layout)))
+        return nullptr;
+    if (tabular_) layout->SetTypography(tabular_, {0, (UINT32)s.size()});
+    return layout;
+}
+
 void Canvas::Text(const std::wstring& s, D2D1_RECT_F r, float size, Color c, DWRITE_FONT_WEIGHT w, Align a,
                   bool vcenter, bool mono) {
-    if (s.empty()) return;
+    if (s.empty() || c.a <= 0.002f) return;
     IDWriteTextFormat* f = Format(size, w, a, mono);
     if (!f) return;
     f->SetParagraphAlignment(vcenter ? DWRITE_PARAGRAPH_ALIGNMENT_CENTER : DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    IDWriteTextLayout* layout = nullptr;
-    if (FAILED(g_gfx.dw->CreateTextLayout(s.c_str(), (UINT32)s.size(), f, std::max(1.f, r.right - r.left),
-                                          std::max(1.f, r.bottom - r.top), &layout)))
-        return;
-    // tabular figures so clocks and timers don't wobble
-    IDWriteTypography* typo = nullptr;
-    if (SUCCEEDED(g_gfx.dw->CreateTypography(&typo))) {
-        typo->AddFontFeature({DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES, 1});
-        layout->SetTypography(typo, {0, (UINT32)s.size()});
-        typo->Release();
-    }
+    IDWriteTextLayout* layout = Layout(s, f, r.right - r.left, r.bottom - r.top);
+    if (!layout) return;
     rt_->DrawTextLayout(D2D1::Point2F(r.left, r.top), layout, Brush(c), D2D1_DRAW_TEXT_OPTIONS_CLIP);
     layout->Release();
 }
 
 float Canvas::Measure(const std::wstring& s, float size, DWRITE_FONT_WEIGHT w, bool mono) {
     if (s.empty()) return 0;
+    auto key = std::make_tuple(s, (int)(size * 10), (int)w, mono ? 1 : 0);
+    if (auto it = widths_.find(key); it != widths_.end()) return it->second;
     IDWriteTextFormat* f = Format(size, w, Align::Left, mono);
-    IDWriteTextLayout* layout = nullptr;
-    if (!f || FAILED(g_gfx.dw->CreateTextLayout(s.c_str(), (UINT32)s.size(), f, 4000, 200, &layout))) return 0;
-    IDWriteTypography* typo = nullptr;
-    if (SUCCEEDED(g_gfx.dw->CreateTypography(&typo))) {
-        typo->AddFontFeature({DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES, 1});
-        layout->SetTypography(typo, {0, (UINT32)s.size()});
-        typo->Release();
-    }
+    IDWriteTextLayout* layout = f ? Layout(s, f, 4000, 200) : nullptr;
+    if (!layout) return 0;
     DWRITE_TEXT_METRICS m{};
     layout->GetMetrics(&m);
     layout->Release();
+    if (widths_.size() > 512) widths_.clear();   // clocks and titles change; keep it small
+    widths_.emplace(key, m.widthIncludingTrailingWhitespace);
     return m.widthIncludingTrailingWhitespace;
 }
 
 // Images are painted with a bitmap brush inside the rounded shape, so the
 // edge is anti-aliased and nothing ever spills outside it (no layer needed).
 void Canvas::DrawImage(Image& img, D2D1_RECT_F r, float radius, float opacity) {
-    ID2D1Bitmap* b = img.For(rt_);
+    ID2D1Bitmap* b = img.For(rt_, gen_);
     if (!b) return;
     float sw = (float)img.w, sh = (float)img.h;
     float dw = r.right - r.left, dh = r.bottom - r.top;
@@ -390,13 +458,19 @@ void LayeredSurface::Free() {
         dc_ = nullptr;
     }
     if (bmp_) { DeleteObject(bmp_); bmp_ = nullptr; }
-    w_ = h_ = 0;
+    w_ = h_ = capW_ = capH_ = boundH_ = 0;
 }
 
+// The island changes height on every frame while the card opens. Rebuilding
+// the bitmap and render target each time would also throw away every cached
+// brush, text format and image, so the bitmap grows in 128 px steps and the
+// target is bound to a 64 px band that covers the frame.
 bool LayeredSurface::Begin(int w, int h, float dpiScale) {
     w = std::max(w, 1);
     h = std::max(h, 1);
-    if (w != w_ || h != h_ || !rt_) {
+    if (w != capW_ || h > capH_ || !rt_) {
+        int capH = std::max(h, capH_);
+        capH = (capH + 127) / 128 * 128;
         Free();
         HDC screen = GetDC(nullptr);
         dc_ = CreateCompatibleDC(screen);
@@ -404,15 +478,15 @@ bool LayeredSurface::Begin(int w, int h, float dpiScale) {
         BITMAPINFO bi{};
         bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
         bi.bmiHeader.biWidth = w;
-        bi.bmiHeader.biHeight = -h;
+        bi.bmiHeader.biHeight = -capH;
         bi.bmiHeader.biPlanes = 1;
         bi.bmiHeader.biBitCount = 32;
         bi.bmiHeader.biCompression = BI_RGB;
         bmp_ = CreateDIBSection(dc_, &bi, DIB_RGB_COLORS, &bits_, nullptr, 0);
         if (!bmp_) { Free(); return false; }
         old_ = SelectObject(dc_, bmp_);
-        w_ = w;
-        h_ = h;
+        capW_ = w;
+        capH_ = capH;
         D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
             D2D1_RENDER_TARGET_TYPE_DEFAULT,
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 0, 0,
@@ -421,8 +495,14 @@ bool LayeredSurface::Begin(int w, int h, float dpiScale) {
         rt_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
         canvas_.Attach(rt_);
     }
-    RECT rc{0, 0, w_, h_};
-    rt_->BindDC(dc_, &rc);
+    w_ = w;
+    h_ = h;
+    int band = std::min(capH_, (h + 63) / 64 * 64);
+    if (band != boundH_) {
+        RECT rc{0, 0, w_, band};
+        rt_->BindDC(dc_, &rc);
+        boundH_ = band;
+    }
     rt_->SetDpi(96.f * dpiScale, 96.f * dpiScale);
     rt_->BeginDraw();
     rt_->SetTransform(D2D1::IdentityMatrix());
@@ -433,10 +513,10 @@ bool LayeredSurface::Begin(int w, int h, float dpiScale) {
 void LayeredSurface::End(HWND hwnd, POINT screenPos) {
     if (!rt_) return;
     HRESULT hr = rt_->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET) { Free(); return; }
+    if (hr == (HRESULT)D2DERR_RECREATE_TARGET) { Free(); return; }
     if (FAILED(hr)) {
         char msg[64];
-        snprintf(msg, sizeof msg, "LostIsland: EndDraw failed 0x%08lx\n", (unsigned long)hr);
+        snprintf(msg, sizeof msg, "LoopIsland: EndDraw failed 0x%08lx\n", (unsigned long)hr);
         OutputDebugStringA(msg);
     }
     SIZE size{w_, h_};

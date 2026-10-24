@@ -1,0 +1,48 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Cross-compiled on Linux, the same way contributors on Linux build it.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64-posix cmake
+      - name: Build
+        run: ./scripts/build.sh
+      - name: Package
+        run: |
+          mkdir -p dist/loop-island
+          cp build/loop-island.exe README.md LICENSE linux/loop-island media/icon.png dist/loop-island/
+          cd dist && zip -r loop-island-win64-linux.zip loop-island
+      - uses: actions/upload-artifact@v4
+        with:
+          name: loop-island
+          path: |
+            build/loop-island.exe
+            dist/loop-island-win64-linux.zip
+      - name: Read version
+        id: version
+        run: echo "tag=v$(sed -n 's/^project(LoopIsland VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)" >> "$GITHUB_OUTPUT"
+      # Every push to main publishes (or refreshes) the release for the
+      # version in CMakeLists.txt; bump the version to start a new one.
+      - name: Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: loop-island ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || steps.version.outputs.tag }}
+          body_path: .github/release-notes.md
+          files: |
+            build/loop-island.exe
+            dist/loop-island-win64-linux.zip

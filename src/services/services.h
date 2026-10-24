@@ -1,4 +1,4 @@
-// Lost Island for Windows: system services.
+// Loop Island: system services.
 // Every service is a small namespace with Start/Stop and plain getters.
 // Services that change on their own post `WM_APP_SERVICE` to the island
 // window with wParam = ServiceId, so the UI repaints only when needed.
@@ -202,6 +202,6 @@ std::wstring PickColor();          // returns "#RRGGBB" or empty
 bool StartWithWindows();
 void SetStartWithWindows(bool on);
 std::wstring ExePath();
-std::wstring ConfigDir();          // %APPDATA%\LostIsland
-std::wstring CacheDir();           // %LOCALAPPDATA%\LostIsland
+std::wstring ConfigDir();          // %APPDATA%\LoopIsland
+std::wstring CacheDir();           // %LOCALAPPDATA%\LoopIsland
 }

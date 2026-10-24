@@ -287,11 +287,11 @@ std::wstring PickColor() {
         WNDCLASSW wc{};
         wc.lpfnWndProc = PickerProc;
         wc.hInstance = GetModuleHandleW(nullptr);
-        wc.lpszClassName = L"LostIslandPicker";
+        wc.lpszClassName = L"LoopIslandPicker";
         RegisterClassW(&wc);
         registered = true;
     }
-    HWND h = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"LostIslandPicker", L"", WS_POPUP, p.area.left,
+    HWND h = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"LoopIslandPicker", L"", WS_POPUP, p.area.left,
                              p.area.top, p.area.right - p.area.left, p.area.bottom - p.area.top, nullptr, nullptr,
                              GetModuleHandleW(nullptr), nullptr);
     GetCursorPos(&p.cur);
@@ -321,7 +321,7 @@ std::wstring PickColor() {
 bool StartWithWindows() {
     wchar_t buf[MAX_PATH * 2];
     DWORD size = sizeof(buf);
-    return RegGetValueW(HKEY_CURRENT_USER, kRun, L"LostIsland", RRF_RT_REG_SZ, nullptr, buf, &size) == ERROR_SUCCESS;
+    return RegGetValueW(HKEY_CURRENT_USER, kRun, L"LoopIsland", RRF_RT_REG_SZ, nullptr, buf, &size) == ERROR_SUCCESS;
 }
 
 void SetStartWithWindows(bool on) {
@@ -329,10 +329,10 @@ void SetStartWithWindows(bool on) {
     if (RegOpenKeyExW(HKEY_CURRENT_USER, kRun, 0, KEY_SET_VALUE, &k) != ERROR_SUCCESS) return;
     if (on) {
         std::wstring v = L"\"" + ExePath() + L"\"";
-        RegSetValueExW(k, L"LostIsland", 0, REG_SZ, reinterpret_cast<const BYTE*>(v.c_str()),
+        RegSetValueExW(k, L"LoopIsland", 0, REG_SZ, reinterpret_cast<const BYTE*>(v.c_str()),
                        (DWORD)((v.size() + 1) * sizeof(wchar_t)));
     } else {
-        RegDeleteValueW(k, L"LostIsland");
+        RegDeleteValueW(k, L"LoopIsland");
     }
     RegCloseKey(k);
 }
@@ -344,13 +344,13 @@ std::wstring ExePath() {
 }
 
 std::wstring ConfigDir() {
-    std::wstring d = knownFolder(FOLDERID_RoamingAppData) + L"\\LostIsland";
+    std::wstring d = knownFolder(FOLDERID_RoamingAppData) + L"\\LoopIsland";
     CreateDirectoryW(d.c_str(), nullptr);
     return d;
 }
 
 std::wstring CacheDir() {
-    std::wstring d = knownFolder(FOLDERID_LocalAppData) + L"\\LostIsland";
+    std::wstring d = knownFolder(FOLDERID_LocalAppData) + L"\\LoopIsland";
     CreateDirectoryW(d.c_str(), nullptr);
     return d;
 }
