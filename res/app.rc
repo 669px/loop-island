@@ -1,0 +1,32 @@
+#include <windows.h>
+1 ICON "app.ico"
+1 RT_MANIFEST "app.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 1,0,2,0
+PRODUCTVERSION 1,0,2,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "byte4day"
+      VALUE "FileDescription", "Lost Island - a Dynamic Island for Windows"
+      VALUE "FileVersion", "1.0.2"
+      VALUE "ProductName", "Lost Island"
+      VALUE "ProductVersion", "1.0.2"
+      VALUE "LegalCopyright", "MIT License"
+      VALUE "OriginalFilename", "LostIsland.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
+2 PNG "demo-art.png"
+3 PNG "claude.png"
+4 PNG "codex.png"
+5 PNG "cursor.png"
