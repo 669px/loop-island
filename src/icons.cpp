@@ -82,10 +82,8 @@ void DrawIcon(Canvas& c, const std::wstring& n, float cx, float cy, float size, 
         ID2D1GeometrySink* sk = nullptr;
         if (SUCCEEDED(g_gfx.d2d->CreatePathGeometry(&g)) && SUCCEEDED(g->Open(&sk))) {
             sk->BeginFigure(i1, D2D1_FIGURE_BEGIN_FILLED);
-            sk->AddArc(D2D1::ArcSegment(i2, D2D1::SizeF(ar * p.k, ar * p.k), 0, D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
-                                        D2D1_ARC_SIZE_LARGE));
-            sk->AddArc(D2D1::ArcSegment(i1, D2D1::SizeF(br * p.k, br * p.k), 0, D2D1_SWEEP_DIRECTION_CLOCKWISE,
-                                        D2D1_ARC_SIZE_SMALL));
+            AddArcTo(sk, i1, i2, D2D1::Point2F(p.X(ax), p.Y(ay)), ar * p.k, false);
+            AddArcTo(sk, i2, i1, D2D1::Point2F(p.X(bx), p.Y(by)), br * p.k, true);
             sk->EndFigure(D2D1_FIGURE_END_CLOSED);
             sk->Close();
             c.FillGeometry(g, col);
@@ -98,8 +96,8 @@ void DrawIcon(Canvas& c, const std::wstring& n, float cx, float cy, float size, 
         ID2D1GeometrySink* s = nullptr;
         if (SUCCEEDED(g_gfx.d2d->CreatePathGeometry(&g)) && SUCCEEDED(g->Open(&s))) {
             s->BeginFigure(D2D1::Point2F(p.X(12), p.Y(3.5f)), D2D1_FIGURE_BEGIN_FILLED);
-            s->AddArc(D2D1::ArcSegment(D2D1::Point2F(p.X(12), p.Y(20.5f)), D2D1::SizeF(8.5f * p.k, 8.5f * p.k), 0,
-                                       D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+            AddArcTo(s, D2D1::Point2F(p.X(12), p.Y(3.5f)), D2D1::Point2F(p.X(12), p.Y(20.5f)),
+                     D2D1::Point2F(p.X(12), p.Y(12)), 8.5f * p.k, true);
             s->EndFigure(D2D1_FIGURE_END_CLOSED);
             s->Close();
             c.FillGeometry(g, col);

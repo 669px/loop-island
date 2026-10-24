@@ -16,8 +16,9 @@ struct Config {
     bool reducedMotion = false;          // no overshoot, short fades
 
     // Appearance
-    std::wstring accent = L"blue";       // macOS accent names
-    std::wstring cardStyle = L"black";   // black | graphite
+    std::wstring accent = L"lagoon";     // id from AllAccents()
+    std::wstring cardStyle = L"midnight"; // midnight | black | graphite
+    bool adaptive = true;                // tint the island's rim and glow from what is behind it
     bool clock24 = false;
     bool showSeconds = false;
     bool showEq = true;
@@ -71,6 +72,7 @@ const std::vector<std::wstring>& DefaultLaunchers();
 
 struct AccentDef { const wchar_t* id; const wchar_t* label; unsigned rgb; };
 const std::vector<AccentDef>& AllAccents();
+const AccentDef* FindAccent(const std::wstring& id);
 unsigned AccentRGB(const std::wstring& id);
 
 extern Config g_config;

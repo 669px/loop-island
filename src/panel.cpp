@@ -36,8 +36,8 @@ constexpr float kStartW = 720, kStartH = 560, kMinW = 640, kMinH = 480;
 constexpr UINT_PTR kAnimTimer = 1, kCaretTimer = 2;
 constexpr float kSwitchMs = 120;
 
-constexpr Color kSidebarBg = Color::Hex(0x262628);
-constexpr Color kContentBg = Color::Hex(0x1E1E1E);
+constexpr Color kSidebarBg = Color::Hex(0x1C1F26);
+constexpr Color kContentBg = Color::Hex(0x14161C);
 constexpr Color kBoxFill(1, 1, 1, 0.05f);
 constexpr Color kBoxLine(1, 1, 1, 0.08f);
 constexpr Color kSep(1, 1, 1, 0.08f);
@@ -83,7 +83,7 @@ const PageDef kPages[] = {
     {L"island", L"Island", L"island", 0x0A84FF,
      L"shape island notch pill face windows logo clock weather display primary follows pointer monitor distance from top size scale", 0},
     {L"appearance", L"Appearance", L"palette", 0xBF5AF2,
-     L"accent color card style black graphite 24-hour clock show seconds eq bars music", 0},
+     L"accent color card style midnight black graphite adaptive color 24-hour clock show seconds eq bars music", 0},
     {L"controls", L"Controls", L"grid", 0xFF9F0A,
      L"in the card available launchers wi-fi bluetooth sound mic focus dark cast screenshot clipboard lock timer wallpaper wallpapers folder fill fit", 0},
     {L"activities", L"Live Activities", L"sparkles", 0xFF375F,
@@ -658,10 +658,8 @@ void MaskCorners(D2D1_RECT_F r, float rad, Color bg) {
         if (FAILED(g_gfx.d2d->CreatePathGeometry(&g)) || FAILED(g->Open(&k))) { SafeRelease(g); continue; }
         k->BeginFigure(D2D1::Point2F(sx[i], sy[i]), D2D1_FIGURE_BEGIN_FILLED);
         k->AddLine(D2D1::Point2F(sx[i] + dx * rad, sy[i]));
-        bool cw = (dx * dy) < 0;
-        k->AddArc(D2D1::ArcSegment(D2D1::Point2F(sx[i], sy[i] + dy * rad), D2D1::SizeF(rad, rad), 0,
-                                   cw ? D2D1_SWEEP_DIRECTION_CLOCKWISE : D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
-                                   D2D1_ARC_SIZE_SMALL));
+        AddArcTo(k, D2D1::Point2F(sx[i] + dx * rad, sy[i]), D2D1::Point2F(sx[i], sy[i] + dy * rad),
+                 D2D1::Point2F(sx[i] + dx * rad, sy[i] + dy * rad), rad, (dx * dy) < 0);
         k->EndFigure(D2D1_FIGURE_END_CLOSED);
         k->Close();
         C().FillGeometry(g, bg);
@@ -684,7 +682,10 @@ void IslandPreview() {
     float top = box.top + (notch ? 0 : g_config.offsetY * 0.62f);
     D2D1_RECT_F pill = Rect(cx - pw / 2, top, pw, ph);
     if (notch) C().FillNotch(pill, ph * 0.42f, 6, Color(0, 0, 0, 1));
-    else C().FillRound(pill, ph / 2, Color(0, 0, 0, 1));
+    else {
+        C().FillRound(pill, ph / 2, Color(0, 0, 0, 1));
+        if (g_config.adaptive) C().StrokeRound(Inset(pill, 0.5f, 0.5f), ph / 2, Color::Hex(0xC9C4F0, 0.22f));
+    }
     float fs = 13 * k * 1.25f;
     float pad = ph * 0.55f;
     if (g_config.face == L"weather") {
@@ -734,13 +735,17 @@ void PageAppearance() {
     style.title = L"Card style";
     style.subtitle = L"Background of the expanded card";
     style.trailing = [](D2D1_RECT_F rr) {
-        SegCtl(L"seg:style", {L"Black", L"Graphite"}, g_config.cardStyle == L"graphite" ? 1 : 0, rr.right, Mid(rr),
-               [](int i) {
-                   g_config.cardStyle = i == 1 ? L"graphite" : L"black";
-                   Changed();
-               });
+        static const wchar_t* styles[] = {L"midnight", L"black", L"graphite"};
+        int sel = 0;
+        for (int i = 0; i < 3; i++) if (g_config.cardStyle == styles[i]) sel = i;
+        SegCtl(L"seg:style", {L"Midnight", L"Black", L"Graphite"}, sel, rr.right, Mid(rr), [](int i) {
+            g_config.cardStyle = styles[i];
+            Changed();
+        });
     };
-    Group({accent, style});
+    Group({accent, style,
+           ToggleRow(L"Adaptive island color", L"Rim and glow follow what is on screen behind the island",
+                     &g_config.adaptive)});
     Section(L"Clock");
     Group({ToggleRow(L"24-hour clock", L"", &g_config.clock24), ToggleRow(L"Show seconds", L"", &g_config.showSeconds)});
     Section(L"Island");
@@ -1153,7 +1158,7 @@ void Paint() {
     DrawContent();
     DrawSidebar();
     HRESULT hr = S.rt->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET) {
+    if (hr == (HRESULT)D2DERR_RECREATE_TARGET) {
         ReleaseTarget();
         Invalidate();
         return;

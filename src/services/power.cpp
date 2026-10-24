@@ -161,6 +161,7 @@ BatteryInfo Get() {
 namespace {
 std::thread g_brThread;
 HANDLE g_brWake = nullptr;
+HANDLE g_brDone = nullptr;   // set when the worker returns, so Stop() can wait with a timeout
 std::atomic<bool> g_brStop{false}, g_brRead{true};
 std::atomic<int> g_brValue{-1}, g_brWant{-1};
 std::atomic<int> g_brMode{-1};
@@ -189,6 +190,7 @@ void brightnessWorker() {
         WaitForSingleObject(g_brWake, INFINITE);
     }
     CoUninitialize();
+    SetEvent(g_brDone);
 }
 }  // namespace
 
@@ -196,6 +198,7 @@ namespace brightness {
 void Start() {
     if (g_brThread.joinable()) return;
     g_brWake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    g_brDone = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     g_brThread = std::thread(brightnessWorker);
 }
 void Stop() {
@@ -203,7 +206,7 @@ void Stop() {
     g_brStop = true;
     SetEvent(g_brWake);
     // a hung WMI call must not block exit
-    if (WaitForSingleObject(g_brThread.native_handle(), 1500) == WAIT_OBJECT_0) g_brThread.join();
+    if (WaitForSingleObject(g_brDone, 1500) == WAIT_OBJECT_0) g_brThread.join();
     else g_brThread.detach();
 }
 bool Available() { return g_brMode.load() > 0; }

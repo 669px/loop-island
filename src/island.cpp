@@ -4,16 +4,19 @@
 // desktop. Shapes move on springs, like Apple's Dynamic Island.
 #include "island.h"
 
+#include <dwmapi.h>
 #include <shellapi.h>
 #include <shellscalingapi.h>
 #include <windowsx.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
+#include <thread>
 
 #include "app.h"
 #include "config.h"
@@ -31,7 +34,8 @@ constexpr float kCardPad = 18;
 constexpr float kBubble = 37;
 constexpr float kGap = 8;
 constexpr float kShadow = 34;       // room below the shape for its shadow
-constexpr UINT_PTR kTimerAnim = 1, kTimerTick = 2, kTimerLong = 3, kTimerHover = 4, kTimerOutside = 6;
+constexpr UINT_PTR kTimerTick = 2, kTimerLong = 3, kTimerHover = 4, kTimerOutside = 6, kTimerBackdrop = 8;
+constexpr UINT WM_APP_FRAME = WM_APP + 43;   // posted by the frame thread once per display refresh
 constexpr int kHotkeyId = 7;
 
 enum class Mode { Rest, Peek, Card };
@@ -41,10 +45,15 @@ enum class Act { None, ClaudeNeeds, Music, ClaudeWork, ClaudeDone, Download, Tim
 struct Spring {
     float x = 0, v = 0, t = 0;
     void snap(float a) { x = t = a; v = 0; }
+    // Semi-implicit Euler in steps of at most 1/240 s, so a stiff spring stays
+    // stable when a frame comes late.
     bool step(float dt, float k, float d, float eps) {
-        float a = -k * (x - t) - d * v;
-        v += a * dt;
-        x += v * dt;
+        int n = std::max(1, (int)std::ceil(dt * 240.f));
+        float h = dt / n;
+        for (int i = 0; i < n; i++) {
+            v += (-k * (x - t) - d * v) * h;
+            x += v * h;
+        }
         if (std::fabs(x - t) < eps && std::fabs(v) < eps * 4) { x = t; v = 0; return false; }
         return true;
     }
@@ -79,10 +88,16 @@ bool g_hidden = false;               // fullscreen app in front
 bool g_pinned = false;               // debug states: stay open for screenshots
 bool g_demo = false;                 // --demo: sample music and Claude data for screenshots
 bool g_wine = false;                 // Wine's D2D drops alpha on translucent fills
-Spring g_w, g_h, g_r, g_alpha, g_bubble, g_shade;
-ULONGLONG g_lastFrame = 0;
-bool g_animating = false;
+Spring g_w, g_h, g_r, g_alpha, g_bubble, g_shade, g_peekBar;
+double g_lastFrame = 0;
+std::atomic<bool> g_animating{false};
 float g_phase = 0;                   // continuous animation clock (seconds)
+uint64_t g_msgGen = 1;               // bumped for every window message; see activities()
+
+// frame thread: waits for the compositor and posts WM_APP_FRAME
+std::thread g_frameThread;
+HANDLE g_frameWake = nullptr;
+std::atomic<bool> g_frameStop{false}, g_framePosted{false};
 
 std::vector<HitR> g_hits;
 std::wstring g_hover, g_press;
@@ -127,6 +142,18 @@ int g_timerTotalMs = 0;
 
 // ------------------------------------------------------------ helpers
 ULONGLONG now() { return GetTickCount64(); }
+
+// GetTickCount64 moves in 15.6 ms steps, too coarse to drive springs smoothly.
+double clockSec() {
+    static const double period = [] {
+        LARGE_INTEGER f;
+        QueryPerformanceFrequency(&f);
+        return 1.0 / (double)f.QuadPart;
+    }();
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    return (double)c.QuadPart * period;
+}
 
 // LOSTISLAND_LOG=1 writes a trace to %TEMP%\lostisland.log (for debugging)
 void logf(const char* fmt, ...) {
@@ -231,14 +258,27 @@ std::wstring appName(const std::wstring& aumid) {
     return s;
 }
 
-bool cardStyleGraphite() { return g_config.cardStyle == L"graphite"; }
 bool notch() { return g_config.shape == L"notch"; }
 float topY() { return notch() ? 0.f : (float)g_config.offsetY; }
 
 // ------------------------------------------------------------ activities
-std::vector<Act> activities() {
-    std::vector<Act> out;
-    auto sessions = g_config.actClaude ? claude::Visible() : std::vector<ClaudeSession>{};
+// Service getters copy and sort under a lock, and drawing one frame asks for
+// these many times, so each answer is kept for the rest of the window message.
+const std::vector<ClaudeSession>& sessions() {
+    static uint64_t gen = 0;
+    static std::vector<ClaudeSession> cached;
+    if (gen != g_msgGen) { cached = claude::Visible(); gen = g_msgGen; }
+    return cached;
+}
+
+const std::vector<Act>& activities() {
+    static uint64_t gen = 0;
+    static std::vector<Act> out;
+    if (gen == g_msgGen) return out;
+    gen = g_msgGen;
+    out.clear();
+    static const std::vector<ClaudeSession> none;
+    const auto& sessions = g_config.actClaude ? ::sessions() : none;
     Act claudeAct = Act::None;
     if (!sessions.empty()) {
         const auto& s = sessions.front().state;
@@ -251,26 +291,22 @@ std::vector<Act> activities() {
     if (g_config.actDownloads && !downloads::Active().empty()) out.push_back(Act::Download);
     if (g_config.actTimer && (g_timerRun || (g_timerLeftMs > 0 && g_timerLeftMs < g_timerTotalMs)))
         out.push_back(Act::Timer);
-    // on the weather face, music moves to the bubble instead of replacing the clock
-    if (g_config.face == L"weather" && !out.empty() && out.front() == Act::Music) {
-        out.erase(out.begin());
-        out.insert(out.begin(), Act::None);
-        if (out.size() > 1) std::swap(out[1], out[0]), std::swap(out[0], out[1]);
-    }
+    // on the weather face the clock keeps the pill and music moves to the bubble
+    if (g_config.face == L"weather" && !out.empty() && out.front() == Act::Music) out.insert(out.begin(), Act::None);
     return out;
 }
 
 Act primaryAct() {
-    auto a = activities();
+    const auto& a = activities();
     return a.empty() ? Act::None : a[0];
 }
 Act secondaryAct() {
-    auto a = activities();
+    const auto& a = activities();
     return a.size() > 1 ? a[1] : Act::None;
 }
 
 ClaudeSession topSession() {
-    auto s = claude::Visible();
+    const auto& s = sessions();
     return s.empty() ? ClaudeSession{} : s.front();
 }
 
@@ -340,10 +376,9 @@ CardLayout cardLayout() {
     L.yHeader = y;
     L.header = g_media.active && !g_media.title.empty() ? (g_media.hasTimeline ? 158.f : 132.f) : 80.f;
     y += L.header + 12;
-    auto sessions = claude::Visible();
-    if (!sessions.empty()) {
+    if (!sessions().empty()) {
         L.ySessions = y;
-        L.sessions = std::min<size_t>(sessions.size(), 3) * 40.f + 8;
+        L.sessions = std::min<size_t>(sessions().size(), 3) * 40.f + 8;
         y += L.sessions + 12;
     }
     L.yControls = y;
@@ -410,8 +445,170 @@ void pickMonitor() {
     g_k = g_dpi * g_config.scale / 100.f;
 }
 
-// ------------------------------------------------------------ animation
 void kick();
+
+// ------------------------------------------------------------ hit regions
+void hit(D2D1_RECT_F r, const std::wstring& id, int idx = -1) { g_hits.push_back({r, id, idx}); }
+bool hovered(const std::wstring& id, int idx = -1) { return g_hover == id && (idx < 0 || g_hoverIdx == idx); }
+bool pressed(const std::wstring& id, int idx = -1) { return g_press == id && (idx < 0 || g_pressIdx == idx); }
+
+// Hover, press and on/off states ease in and out instead of snapping.
+// ease() records where a value is heading and returns where it is now;
+// stepFades() moves every value along once per frame.
+struct Fade { float v = 0; bool on = false; };
+std::map<std::wstring, Fade> g_fades;
+
+float ease(const std::wstring& key, bool on) {
+    auto [it, fresh] = g_fades.try_emplace(key);
+    if (fresh) it->second.v = on ? 1.f : 0.f;   // first sight: no fade from nothing
+    if (it->second.on != on) { it->second.on = on; kick(); }
+    return it->second.v;
+}
+float easeHover(const std::wstring& id, int idx = -1) {
+    return ease(L"h:" + id + L"#" + std::to_wstring(idx), hovered(id, idx));
+}
+float easePress(const std::wstring& id, int idx = -1) {
+    return ease(L"p:" + id + L"#" + std::to_wstring(idx), pressed(id, idx));
+}
+
+bool stepFades(float dt) {
+    float k = 1 - std::exp(-dt * 16);
+    bool moving = false;
+    for (auto it = g_fades.begin(); it != g_fades.end();) {
+        Fade& f = it->second;
+        float t = f.on ? 1.f : 0.f;
+        f.v += (t - f.v) * k;
+        if (std::fabs(t - f.v) < 0.004f) f.v = t;
+        else moving = true;
+        if (!f.on && f.v == 0) it = g_fades.erase(it);
+        else ++it;
+    }
+    return moving;
+}
+
+// ------------------------------------------------------------ adaptive colour
+// A black pill disappears on a dark wallpaper and looks heavy on a white
+// page. The screen behind the island is sampled twice a second, and the rim,
+// glow and shadow follow its brightness and hue.
+struct Backdrop {
+    Spring lum;                       // 0 dark .. 1 light
+    Color tint{0.5f, 0.5f, 0.5f};     // average colour, eased toward `want`
+    Color want{0.5f, 0.5f, 0.5f};
+};
+Backdrop g_bd;
+
+bool sampleScreen(RECT r, Color& avg) {
+    int w = r.right - r.left, h = r.bottom - r.top;
+    if (w <= 0 || h <= 0) return false;
+    constexpr int kW = 24, kH = 6;
+    HDC screen = GetDC(nullptr);
+    if (!screen) return false;
+    HDC mem = CreateCompatibleDC(screen);
+    BITMAPINFO bi{};
+    bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
+    bi.bmiHeader.biWidth = kW;
+    bi.bmiHeader.biHeight = -kH;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HBITMAP bmp = CreateDIBSection(mem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    bool ok = false;
+    if (bmp) {
+        HGDIOBJ old = SelectObject(mem, bmp);
+        SetStretchBltMode(mem, HALFTONE);
+        SetBrushOrgEx(mem, 0, 0, nullptr);
+        // without CAPTUREBLT, layered windows (this one) are left out of the copy
+        if (StretchBlt(mem, 0, 0, kW, kH, screen, r.left, r.top, w, h, SRCCOPY)) {
+            GdiFlush();
+            const uint8_t* px = static_cast<const uint8_t*>(bits);
+            float sr = 0, sg = 0, sb = 0;
+            for (int i = 0; i < kW * kH; i++) {
+                sb += px[i * 4];
+                sg += px[i * 4 + 1];
+                sr += px[i * 4 + 2];
+            }
+            float n = 255.f * kW * kH;
+            avg = Color(sr / n, sg / n, sb / n);
+            ok = true;
+        }
+        SelectObject(mem, old);
+        DeleteObject(bmp);
+    }
+    DeleteDC(mem);
+    ReleaseDC(nullptr, screen);
+    return ok;
+}
+
+D2D1_RECT_F shapeRect();
+
+void sampleBackdrop() {
+    if (!g_config.adaptive || !g_hwnd || g_hidden) return;
+    D2D1_RECT_F s = shapeRect();
+    RECT r;
+    if (g_wine) {
+        // Wine's screen copy includes our own window, so read the strip just below it
+        RECT wr;
+        GetWindowRect(g_hwnd, &wr);
+        r = RECT{g_winPos.x + (LONG)((s.left - 24) * g_k), wr.bottom, g_winPos.x + (LONG)((s.right + 24) * g_k),
+                 wr.bottom + (LONG)(18 * g_k)};
+    } else {
+        r = RECT{g_winPos.x + (LONG)((s.left - 24) * g_k), g_winPos.y + (LONG)(s.top * g_k),
+                 g_winPos.x + (LONG)((s.right + 24) * g_k), g_winPos.y + (LONG)((s.bottom + 14) * g_k)};
+    }
+    IntersectRect(&r, &r, &g_mon);
+    Color c;
+    if (!sampleScreen(r, c)) return;
+    float lum = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+    if (std::fabs(lum - g_bd.lum.t) > 0.01f || std::fabs(c.r - g_bd.want.r) + std::fabs(c.g - g_bd.want.g) +
+                                                       std::fabs(c.b - g_bd.want.b) > 0.03f) {
+        g_bd.lum.t = lum;
+        g_bd.want = c;
+        kick();
+    }
+}
+
+bool stepBackdrop(float dt) {
+    bool a = g_bd.lum.step(dt, 60, 15.5f, 0.002f);   // about half a second, no overshoot
+    float k = 1 - std::exp(-dt * 6);
+    Color& t = g_bd.tint;
+    const Color& w = g_bd.want;
+    t = t.mix(w, k);
+    return a || std::fabs(t.r - w.r) + std::fabs(t.g - w.g) + std::fabs(t.b - w.b) > 0.004f;
+}
+
+// How the island should sit on the current backdrop.
+struct Skin {
+    Color fillTop, fillBottom;  // shape background
+    Color rim;                  // 1 px edge
+    Color glow;                 // soft light around it on dark backdrops (alpha = strength)
+    float shadow;               // strength of the drop shadow on light backdrops
+};
+
+Skin skin(bool card) {
+    Skin k;
+    k.fillTop = card ? pal::cardTop() : Color(0, 0, 0, 1);
+    k.fillBottom = card ? pal::cardBottom() : Color(0, 0, 0, 1);
+    k.rim = pal::hairline;
+    k.glow = Color(1, 1, 1, 0);
+    k.shadow = 1;
+    if (!g_config.adaptive) return k;
+    float lum = std::clamp(g_bd.lum.x, 0.f, 1.f);
+    float dark = std::clamp((0.5f - lum) / 0.38f, 0.f, 1.f);   // 1 on a dark backdrop
+    // the backdrop's hue, made light and a little saturated, for the edge light
+    Color t = g_bd.tint;
+    float mx = std::max({t.r, t.g, t.b, 0.001f});
+    Color hue(t.r / mx, t.g / mx, t.b / mx);
+    Color light = hue.mix(Color(1, 1, 1), 0.55f);
+    k.fillTop = k.fillTop.mix(light.mix(Color(0, 0, 0), 0.82f), 0.5f * dark);
+    k.fillBottom = k.fillBottom.mix(light.mix(Color(0, 0, 0), 0.9f), 0.35f * dark);
+    k.rim = light.alpha(0.07f + 0.17f * dark);
+    k.glow = light.alpha(0.05f * dark);
+    k.shadow = 0.55f + 0.9f * (1 - dark);
+    return k;
+}
+
+// ------------------------------------------------------------ animation
 
 void closeWallpapers();
 void setMode(Mode m) {
@@ -431,7 +628,14 @@ void setMode(Mode m) {
     kick();
 }
 
-void relayout() { setMode(g_mode); }
+void relayout() {
+    // a new live activity taking over the pill fades in like a mode change
+    static Act shown = Act::None;
+    Act now = primaryAct();
+    if (g_mode == Mode::Rest && now != shown) g_alpha.x = std::min(g_alpha.x, 0.f);
+    shown = now;
+    setMode(g_mode);
+}
 
 bool stepAnim(float dt) {
     float k = g_config.reducedMotion ? 520.f : 380.f;
@@ -443,7 +647,10 @@ bool stepAnim(float dt) {
     a |= g_alpha.step(dt, 260, 32, 0.004f);
     a |= g_bubble.step(dt, 420, 22, 0.004f);
     a |= g_shade.step(dt, 300, 34, 0.004f);
+    a |= g_peekBar.step(dt, 420, 41, 0.002f);
     if (g_page == Page::Wallpapers) a |= g_wallPos.step(dt, 300, 34.6f, 0.002f);   // critically damped
+    a |= stepFades(dt);
+    a |= stepBackdrop(dt);
     return a;
 }
 
@@ -451,22 +658,42 @@ bool needsContinuous() {
     if (g_hidden) return false;
     Act p = primaryAct(), s = secondaryAct();
     bool eq = g_config.showEq && (p == Act::Music || (g_mode == Mode::Card && g_media.playing));
-    bool spin = p == Act::ClaudeWork || s == Act::ClaudeWork || (g_mode == Mode::Card && !claude::Visible().empty());
-    return eq || spin || g_edit || g_dragging || (p == Act::Download);
+    bool spin = p == Act::ClaudeWork || s == Act::ClaudeWork || (g_mode == Mode::Card && !sessions().empty());
+    bool breathe = p == Act::ClaudeNeeds && g_mode == Mode::Rest && !g_config.reducedMotion;
+    return eq || spin || breathe || g_edit || g_dragging || (p == Act::Download);
 }
 
 void kick() {
     if (!g_animating && g_hwnd) {
+        g_lastFrame = clockSec();
         g_animating = true;
-        g_lastFrame = now();
-        SetTimer(g_hwnd, kTimerAnim, 15, nullptr);
+        SetEvent(g_frameWake);
     }
 }
 
-// ------------------------------------------------------------ hit regions
-void hit(D2D1_RECT_F r, const std::wstring& id, int idx = -1) { g_hits.push_back({r, id, idx}); }
-bool hovered(const std::wstring& id, int idx = -1) { return g_hover == id && (idx < 0 || g_hoverIdx == idx); }
-bool pressed(const std::wstring& id, int idx = -1) { return g_press == id && (idx < 0 || g_pressIdx == idx); }
+// Paces animation to the display: DwmFlush returns after each composition
+// pass. Where it doesn't block (Wine, composition off) a 60 Hz timer stands in.
+void frameLoop() {
+    HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    if (!timer) timer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
+    int quick = 0;
+    while (!g_frameStop) {
+        if (!g_animating) { WaitForSingleObject(g_frameWake, INFINITE); continue; }
+        double t0 = clockSec();
+        bool vsync = quick < 3 && SUCCEEDED(DwmFlush());
+        if (vsync && clockSec() - t0 < 0.002) quick++;
+        else if (vsync) quick = 0;
+        if (!vsync || quick) {
+            LARGE_INTEGER due;
+            due.QuadPart = -166667;   // 16.7 ms
+            if (timer && SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) WaitForSingleObject(timer, INFINITE);
+            else Sleep(16);
+        }
+        // one frame in flight at a time, so a busy UI thread never queues a backlog
+        if (!g_framePosted.exchange(true)) PostMessageW(g_hwnd, WM_APP_FRAME, 0, 0);
+    }
+    if (timer) CloseHandle(timer);
+}
 
 // ------------------------------------------------------------ drawing: pill content
 void drawEq(Canvas& c, float x, float cy, float h, Color col) {
@@ -608,7 +835,7 @@ void drawPeek(Canvas& c, D2D1_RECT_F r) {
     if (g_peek.bar >= 0) {
         float barW = r.right - 18 - 36 - x;
         c.FillRound(Rect(x, cy - 3, barW, 6), 3, Color(1, 1, 1, 0.18f));
-        c.FillRound(Rect(x, cy - 3, std::max(6.f, barW * g_peek.bar), 6), 3, pal::ink);
+        c.FillRound(Rect(x, cy - 3, std::max(6.f, barW * std::clamp(g_peekBar.x, 0.f, 1.f)), 6), 3, pal::ink);
         wchar_t pct[8];
         swprintf(pct, 8, L"%d", (int)std::lround(g_peek.bar * 100));
         c.Text(pct, Rect(r.right - 18 - 30, r.top, 30, r.bottom - r.top), 13, pal::ink, DWRITE_FONT_WEIGHT_SEMI_BOLD,
@@ -660,10 +887,11 @@ void drawControlCell(Canvas& c, float cx, float top, const ControlDef& d, int id
     if (g_edit) jig = std::sin(g_phase * 14 + idx * 1.7f) * 2.2f;   // edit mode jiggles
     D2D1_MATRIX_3X2_F old = c.Transform();
     if (jig != 0) c.SetTransform(D2D1::Matrix3x2F::Rotation(jig, D2D1::Point2F(cx, cy)) * old);
-    bool hov = hovered(trayItem ? L"tray" : L"ctl", idx);
-    bool prs = pressed(trayItem ? L"tray" : L"ctl", idx) && !g_edit;
-    float pr = prs ? 0.92f : 1.f;
-    Color fill = st.on && d.toggle ? accent() : (hov ? pal::glassHi.mix(Color(1, 1, 1, 0.2f), 0.3f) : Color(1, 1, 1, 0.12f));
+    const wchar_t* kind = trayItem ? L"tray" : L"ctl";
+    float hov = easeHover(kind, idx);
+    float pr = 1 - 0.08f * (g_edit ? 0.f : easePress(kind, idx));
+    float on = ease(std::wstring(L"on:") + d.id, st.on && d.toggle);
+    Color fill = Color(1, 1, 1, 0.12f).mix(Color(1, 1, 1, 0.17f), hov).mix(accent(), on);
     if (st.dim) fill = Color(1, 1, 1, 0.06f);
     c.FillCircle(cx, cy, rad * pr, fill);
     Color ic = st.dim ? pal::ink3 : pal::ink;
@@ -728,8 +956,9 @@ void drawPlayer(Canvas& c, float x, float y, float w, float h) {
     B btns[3] = {{L"prev", L"prev", -64, 22}, {L"play", g_media.playing ? L"pause" : L"play", 0, 28}, {L"next", L"next", 64, 22}};
     for (auto& b : btns) {
         float bx = cx + b.dx;
-        if (hovered(b.id)) c.FillCircle(bx, cy, 20, Color(1, 1, 1, 0.1f));
-        float s = pressed(b.id) ? b.size * 0.88f : b.size;
+        float hov = easeHover(b.id);
+        if (hov > 0) c.FillCircle(bx, cy, 18 + 2 * hov, Color(1, 1, 1, 0.1f * hov));
+        float s = b.size * (1 - 0.12f * easePress(b.id));
         DrawIcon(c, b.icon, bx, cy, s, pal::ink, 1.6f);
         hit(Rect(bx - 20, cy - 20, 40, 40), b.id);
     }
@@ -764,11 +993,11 @@ void drawSlider(Canvas& c, D2D1_RECT_F r, float v, const std::wstring& icon, con
     c.StrokeRound(Inset(r, 0.5f, 0.5f), 18, pal::hairline, 1);
     DrawIcon(c, icon, r.left + 22, cy, 15, pal::ink2, 1.6f);
     D2D1_RECT_F track = D2D1::RectF(r.left + 44, cy - 2.5f, r.right - 58, cy + 2.5f);
-    bool active = hovered(id) || g_slider == id;
+    float active = ease(L"knob:" + id, hovered(id) || g_slider == id);
     c.FillRound(track, 2.5f, Color(1, 1, 1, 0.16f));
     float fw = std::max(5.f, (track.right - track.left) * std::clamp(v, 0.f, 1.f));
     c.FillRound(D2D1::RectF(track.left, track.top, track.left + fw, track.bottom), 2.5f, pal::ink);
-    if (active) c.FillCircle(track.left + fw, cy, 7, pal::ink);
+    if (active > 0.01f) c.FillCircle(track.left + fw, cy, 7 * active, pal::ink);
     wchar_t pct[8];
     swprintf(pct, 8, L"%d%%", (int)std::lround(std::clamp(v, 0.f, 1.f) * 100));
     c.Text(pct, D2D1::RectF(r.right - 56, r.top, r.right - 16, r.bottom), 12, pal::ink2, DWRITE_FONT_WEIGHT_SEMI_BOLD, Align::Right);
@@ -776,7 +1005,7 @@ void drawSlider(Canvas& c, D2D1_RECT_F r, float v, const std::wstring& icon, con
 }
 
 void drawChip(Canvas& c, D2D1_RECT_F r, const std::wstring& id, const std::wstring& icon, const std::wstring& text, Color ic) {
-    if (hovered(id)) c.FillRound(r, 15, Color(1, 1, 1, 0.1f));
+    if (float hov = easeHover(id); hov > 0) c.FillRound(r, 15, Color(1, 1, 1, 0.1f * hov));
     float y = (r.top + r.bottom) / 2;
     DrawIcon(c, icon, r.left + 15, y, 15, ic, 1.6f);
     c.Text(text, D2D1::RectF(r.left + 27, r.top, r.right - 6, r.bottom), 12, pal::ink, DWRITE_FONT_WEIGHT_SEMI_BOLD);
@@ -784,9 +1013,10 @@ void drawChip(Canvas& c, D2D1_RECT_F r, const std::wstring& id, const std::wstri
 }
 
 void drawRoundButton(Canvas& c, float cx, float cy, const std::wstring& id, const std::wstring& icon, bool active = false) {
-    Color bg = active ? accent() : (hovered(id) ? Color(1, 1, 1, 0.18f) : Color(1, 1, 1, 0.1f));
-    c.FillCircle(cx, cy, 14, bg);
-    DrawIcon(c, icon, cx, cy, 15, pal::ink, 1.7f);
+    Color bg = Color(1, 1, 1, 0.1f).mix(Color(1, 1, 1, 0.18f), easeHover(id)).mix(accent(), ease(L"on:" + id, active));
+    float pr = 1 - 0.1f * easePress(id);
+    c.FillCircle(cx, cy, 14 * pr, bg);
+    DrawIcon(c, icon, cx, cy, 15 * pr, pal::ink, 1.7f);
     hit(Rect(cx - 15, cy - 15, 30, 30), id);
 }
 
@@ -799,13 +1029,13 @@ void drawMainPage(Canvas& c, float x0, float y0) {
 
     // Claude sessions
     if (L.sessions > 0) {
-        auto sessions = claude::Visible();
+        const auto& sessions = ::sessions();
         float y = y0 + L.ySessions;
         c.FillRound(Rect(x, y, w, L.sessions), 18, pal::glass);
         for (size_t i = 0; i < sessions.size() && i < 3; i++) {
             auto& s = sessions[i];
             D2D1_RECT_F row = Rect(x + 4, y + 4 + i * 40.f, w - 8, 40);
-            if (hovered(L"session", (int)i)) c.FillRound(row, 14, Color(1, 1, 1, 0.07f));
+            if (float hov = easeHover(L"session", (int)i); hov > 0) c.FillRound(row, 14, Color(1, 1, 1, 0.07f * hov));
             drawSparkAct(c, row.left + 20, row.top + 20, 18, s.state);
             c.Text(s.project.empty() ? L"Claude Code" : s.project, Rect(row.left + 40, row.top + 4, 160, 18), 13, pal::ink,
                    DWRITE_FONT_WEIGHT_SEMI_BOLD, Align::Left, false);
@@ -884,7 +1114,7 @@ void drawMainPage(Canvas& c, float x0, float y0) {
             float jig = g_edit ? std::sin(g_phase * 14 + i * 2.1f) * 1.2f : 0;
             D2D1_MATRIX_3X2_F old = c.Transform();
             if (jig != 0) c.SetTransform(D2D1::Matrix3x2F::Rotation(jig, D2D1::Point2F((r.left + r.right) / 2, y + 22)) * old);
-            c.FillRound(r, 14, hovered(L"launch", (int)i) ? Color(1, 1, 1, 0.13f) : pal::glass);
+            c.FillRound(r, 14, pal::glass.mix(Color(1, 1, 1, 0.13f), easeHover(L"launch", (int)i)));
             float lw = c.Measure(l->label, 12.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD);
             float cx = (r.left + r.right) / 2 - (lw + 26) / 2;
             drawLauncherIcon(c, *l, cx + 9, y + 22);
@@ -908,7 +1138,8 @@ void drawMainPage(Canvas& c, float x0, float y0) {
         drawChip(c, Rect(cx, y, tw, 30), L"timerchip", L"timer", tt, g_timerRun ? accent() : pal::ink2);
         cx += tw + 2;
         WeatherInfo wx = weather::Get();
-        if (wx.valid && !(g_media.active && !g_media.title.empty()) == false) {
+        // the clock header already shows the weather; the player header doesn't
+        if (wx.valid && g_media.active && !g_media.title.empty()) {
             int t = g_config.fahrenheit ? (int)std::lround(wx.tempC * 9 / 5.0 + 32) : wx.tempC;
             std::wstring s = std::to_wstring(t) + L"°";
             float ww = c.Measure(s, 12, DWRITE_FONT_WEIGHT_SEMI_BOLD) + 36;
@@ -940,7 +1171,7 @@ void drawMainPage(Canvas& c, float x0, float y0) {
 
 void drawPageHeader(Canvas& c, float x, float y, float w, const std::wstring& title) {
     D2D1_RECT_F back = Rect(x, y, 34, 34);
-    if (hovered(L"back")) c.FillCircle(x + 17, y + 17, 16, Color(1, 1, 1, 0.1f));
+    if (float hov = easeHover(L"back"); hov > 0) c.FillCircle(x + 17, y + 17, 16, Color(1, 1, 1, 0.1f * hov));
     D2D1_MATRIX_3X2_F old = c.Transform();
     c.SetTransform(D2D1::Matrix3x2F::Rotation(180, D2D1::Point2F(x + 17, y + 17)) * old);
     DrawIcon(c, L"chevron", x + 17, y + 17, 16, pal::ink, 2);
@@ -955,7 +1186,7 @@ void drawClipboardPage(Canvas& c, float x0, float y0) {
     auto items = clipboard::History();
     if (!items.empty()) {
         D2D1_RECT_F clr = Rect(x + w - 64, y + 4, 64, 26);
-        c.FillRound(clr, 13, hovered(L"clear") ? Color(1, 1, 1, 0.18f) : Color(1, 1, 1, 0.1f));
+        c.FillRound(clr, 13, Color(1, 1, 1, 0.1f).mix(Color(1, 1, 1, 0.18f), easeHover(L"clear")));
         c.Text(L"Clear", clr, 12, pal::ink, DWRITE_FONT_WEIGHT_SEMI_BOLD, Align::Center);
         hit(clr, L"clear");
     }
@@ -969,7 +1200,7 @@ void drawClipboardPage(Canvas& c, float x0, float y0) {
         std::wstring t = items[i];
         for (auto& ch : t) if (ch == L'\n' || ch == L'\r' || ch == L'\t') ch = L' ';
         D2D1_RECT_F r = Rect(x, y + i * 38.f, w, 34);
-        c.FillRound(r, 12, hovered(L"clip", (int)i) ? Color(1, 1, 1, 0.12f) : pal::glass);
+        c.FillRound(r, 12, pal::glass.mix(Color(1, 1, 1, 0.12f), easeHover(L"clip", (int)i)));
         c.Text(t, Inset(r, 14, 0), 12.5f, pal::ink);
         hit(r, L"clip", (int)i);
     }
@@ -985,12 +1216,13 @@ void drawPowerPage(Canvas& c, float x0, float y0) {
     for (int i = 0; i < 5; i++) {
         D2D1_RECT_F r = Rect(x, y + i * 44.f, w, 40);
         bool confirm = g_confirm == items[i].id && now() < g_confirmUntil;
-        Color bg = confirm ? pal::danger : (hovered(items[i].id) ? Color(1, 1, 1, 0.12f) : pal::glass);
+        Color bg = pal::glass.mix(Color(1, 1, 1, 0.12f), easeHover(items[i].id)).mix(pal::danger, ease(L"confirm:" + std::wstring(items[i].id), confirm));
         c.FillRound(r, 14, bg);
         DrawIcon(c, items[i].icon, r.left + 22, r.top + 20, 17, pal::ink, 1.7f);
-        std::wstring label = confirm ? std::wstring(L"Click again to ") + items[i].label : items[i].label;
+        std::wstring label = items[i].label;
         if (confirm) {
-            std::transform(label.begin() + 15, label.begin() + 16, label.begin() + 15, ::towlower);
+            label[0] = (wchar_t)towlower(label[0]);
+            label = L"Click again to " + label;
         }
         c.Text(label, Rect(r.left + 44, r.top, w - 60, 40), 13, pal::ink, DWRITE_FONT_WEIGHT_SEMI_BOLD);
         hit(r, items[i].id);
@@ -1069,7 +1301,7 @@ void drawWallpaperPage(Canvas& c, float x0, float y0) {
     float x = x0 + kCardPad, w = kCardW - 2 * kCardPad, y = y0 + 18;
     drawPageHeader(c, x, y, w, g_wallQuery.empty() ? L"Wallpapers" : L"“" + g_wallQuery + L"”");
     D2D1_RECT_F folder = Rect(x + w - 34, y, 34, 34);
-    if (hovered(L"wfolder")) c.FillCircle(folder.left + 17, folder.top + 17, 16, Color(1, 1, 1, 0.1f));
+    if (float hov = easeHover(L"wfolder"); hov > 0) c.FillCircle(folder.left + 17, folder.top + 17, 16, Color(1, 1, 1, 0.1f * hov));
     DrawIcon(c, L"folder", folder.left + 17, folder.top + 17, 17, pal::ink2, 1.6f);
     hit(folder, L"wfolder");
     y += 42;
@@ -1133,9 +1365,29 @@ void render() {
     Canvas& c = g_surf.canvas();
     bool hide = g_hidden && g_mode == Mode::Rest;
 
+    // the card's colours fade in as it grows out of the pill
+    float cardMix = std::clamp(g_shade.x, 0.f, 1.f);
+    Skin pill = skin(false), card = skin(true);
+    Skin k{pill.fillTop.mix(card.fillTop, cardMix), pill.fillBottom.mix(card.fillBottom, cardMix), pill.rim.mix(card.rim, cardMix),
+           pill.glow, pill.shadow};
+    Act first = primaryAct();
+    if (first == Act::ClaudeNeeds && g_mode == Mode::Rest) {
+        // a waiting permission request breathes in orange
+        float b = g_config.reducedMotion ? 0.5f : 0.5f + 0.5f * std::sin(g_phase * 3.2f);
+        k.rim = k.rim.mix(pal::warn.alpha(0.35f + 0.3f * b), 0.85f);
+        k.glow = pal::warn.alpha(0.025f + 0.035f * b);
+    }
+
     if (!hide && !g_wine) {
-        // soft shadow, stronger for the card
-        float sh = 0.035f + 0.05f * std::clamp(g_shade.x, 0.f, 1.f);
+        // light around the shape on dark backdrops, a soft shadow on light ones
+        if (k.glow.a > 0.002f) {
+            for (int i = 1; i <= 4; i++) {
+                float grow = i * 2.5f;
+                D2D1_RECT_F gr = D2D1::RectF(s.left - grow, s.top - (notch() ? 0 : grow), s.right + grow, s.bottom + grow);
+                c.FillRound(gr, g_r.x + grow, k.glow.alpha((5 - i) / 4.f));
+            }
+        }
+        float sh = (0.035f + 0.05f * cardMix) * k.shadow;
         for (int i = 1; i <= 5; i++) {
             float grow = i * 4.f;
             c.FillRound(D2D1::RectF(s.left - grow * 0.5f, s.top + grow * 0.6f, s.right + grow * 0.5f, s.bottom + grow * 1.1f),
@@ -1143,16 +1395,29 @@ void render() {
         }
     }
     if (!hide) {
-        Color bg = (g_mode == Mode::Card && cardStyleGraphite()) ? Color::Hex(0x1C1C1E) : Color(0, 0, 0, 1);
-        if (notch()) c.FillNotch(s, g_r.x, 8, bg);
+        if (notch()) c.FillNotchV(s, g_r.x, 8, k.fillTop, k.fillBottom);
         else {
-            c.FillRound(s, g_r.x, bg);
-            c.StrokeRound(Inset(s, 0.5f, 0.5f), g_r.x, pal::hairline, 1);
+            c.LinearV(s, g_r.x, k.fillTop, k.fillBottom);
+            c.StrokeRound(Inset(s, 0.5f, 0.5f), g_r.x, k.rim, 1);
+        }
+        if (cardMix > 0.01f) {
+            // a thin highlight along the top edge of the card
+            float inset = std::min(g_r.x, 24.f);
+            c.Line(s.left + inset, s.top + (notch() ? 0.5f : 1.f), s.right - inset, s.top + (notch() ? 0.5f : 1.f),
+                   Color(1, 1, 1, 0.07f * cardMix), 1, false);
         }
 
-        // content, clipped to the moving shape and faded in after each change
+        // content, clipped to the moving shape; after each change it fades in
+        // and settles from a slightly smaller size
+        float a = std::clamp(g_alpha.x, 0.f, 1.f);
+        D2D1_MATRIX_3X2_F base = c.Transform();
+        if (!g_config.reducedMotion && a < 1) {
+            float sc = 0.965f + 0.035f * a;
+            c.SetTransform(D2D1::Matrix3x2F::Scale(sc, sc, D2D1::Point2F((s.left + s.right) / 2, s.top)) *
+                           D2D1::Matrix3x2F::Translation(0, (1 - a) * 3) * base);
+        }
         c.PushClipRect(s);
-        c.PushOpacity(std::clamp(g_alpha.x, 0.f, 1.f));
+        c.PushOpacity(a);
         if (g_mode == Mode::Card) {
             float x0 = kWinW / 2 - kCardW / 2, y0 = topY();
             if (g_page == Page::Main) drawMainPage(c, x0, y0);
@@ -1168,6 +1433,7 @@ void render() {
         }
         c.PopOpacity();
         c.PopClipRect();
+        c.SetTransform(base);
         if (g_mode != Mode::Card) hit(s, L"pill");
 
         // the detached bubble for the second live activity
@@ -1175,8 +1441,8 @@ void render() {
         if (bubbleScale > 0.01f && second != Act::None && g_mode != Mode::Card) {
             float size = kBubble * bubbleScale;
             float cx = s.right + kGap + kBubble / 2, cy = topY() + kPillH / 2;
-            c.FillCircle(cx, cy, size / 2, Color(0, 0, 0, 1));
-            c.StrokeCircle(cx, cy, size / 2 - 0.5f, pal::hairline, 1);
+            c.FillCircle(cx, cy, size / 2, pill.fillTop);
+            c.StrokeCircle(cx, cy, size / 2 - 0.5f, pill.rim, 1);
             if (bubbleScale > 0.6f) {
                 c.PushOpacity((bubbleScale - 0.6f) / 0.4f);
                 drawBubbleContent(c, cx, cy, size, second);
@@ -1194,6 +1460,8 @@ void render() {
 // ------------------------------------------------------------ actions
 void peek(const std::wstring& icon, const std::wstring& title, const std::wstring& detail, float bar, Color swatch = Color(0, 0, 0, 0)) {
     if (g_mode == Mode::Card) return;
+    if (g_mode != Mode::Peek || g_peek.bar < 0) g_peekBar.snap(std::max(0.f, bar));
+    g_peekBar.t = std::max(0.f, bar);
     g_peek = PeekInfo{icon, title, detail, bar, swatch, now() + 1700};
     if (g_mode == Mode::Peek) {
         Target t = targetFor(Mode::Peek);
@@ -1413,7 +1681,7 @@ void click(const std::wstring& id, int idx, float x) {
             }
         }
     } else if (id == L"session") {
-        auto s = claude::Visible();
+        auto s = sessions();
         if (idx >= 0 && idx < (int)s.size()) { closeCard(); claude::Focus(s[(size_t)idx]); }
     } else if (id == L"timerchip") toggleTimer();
     else if (id == L"weather") sys::OpenUri(L"https://wttr.in/");
@@ -1595,6 +1863,7 @@ int dropIndex(float x, float y) {
 UINT g_taskbarCreated = 0;
 
 LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    g_msgGen++;
     float mx = GET_X_LPARAM(l) / g_k, my = GET_Y_LPARAM(l) / g_k;
     switch (m) {
     case WM_CREATE: return 0;
@@ -1602,21 +1871,24 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_ACTIVATE:
         if (LOWORD(w) == WA_INACTIVE && g_mode == Mode::Card && !g_dragging && !g_pinned) closeCard();
         return 0;
+    case WM_APP_FRAME: {
+        g_framePosted = false;
+        if (!g_animating) return 0;
+        double t = clockSec();
+        float dt = (float)std::min(0.05, t - g_lastFrame);
+        g_lastFrame = t;
+        g_phase += dt;
+        bool moving = stepAnim(dt);
+        if (primaryAct() == Act::Music || (g_mode == Mode::Card && g_media.playing)) stepEq(dt);
+        render();
+        if (!moving && !needsContinuous()) g_animating = false;
+        return 0;
+    }
     case WM_TIMER:
-        if (w == kTimerAnim) {
-            ULONGLONG t = now();
-            float dt = std::min(0.05f, (t - g_lastFrame) / 1000.f);
-            g_lastFrame = t;
-            g_phase += dt;
-            bool moving = stepAnim(dt);
-            if (primaryAct() == Act::Music || (g_mode == Mode::Card && g_media.playing)) stepEq(dt);
-            render();
-            if (!moving && !needsContinuous()) {
-                KillTimer(h, kTimerAnim);
-                g_animating = false;
-            }
-        } else if (w == kTimerTick) {
+        if (w == kTimerTick) {
             tick();
+        } else if (w == kTimerBackdrop) {
+            sampleBackdrop();
         } else if (w == kTimerLong) {
             KillTimer(h, kTimerLong);
             if (g_press == L"ctl" && g_mode == Mode::Card && !g_edit) {
@@ -1735,9 +2007,8 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             g_brightness = std::clamp(g_brightness + (delta > 0 ? 5 : -5), 0, 100);
             brightness::Set(g_brightness);
         } else if (g_hover == L"timerchip" && !g_timerRun) {
-            g_config.timerMinutes = std::clamp(g_config.timerMinutes + (delta > 0 ? 5 : -5), 5, 90);
-            g_config.timerMinutes -= g_config.timerMinutes % 5;
-            if (g_config.timerMinutes < 5) g_config.timerMinutes = 5;
+            int m = g_config.timerMinutes / 5 * 5 + (delta > 0 ? 5 : -5);
+            g_config.timerMinutes = std::clamp(m, 5, 90);
             g_timerLeftMs = 0;
             g_config.Save();
         }
@@ -1862,7 +2133,7 @@ bool Create(HINSTANCE inst) {
     wc.lpszClassName = L"LostIslandWindow";
     wc.hIcon = LoadIconW(inst, MAKEINTRESOURCEW(1));
     if (!RegisterClassExW(&wc)) return false;
-    g_wine = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr;
+    g_wine = g_gfx.wine;
     pickMonitor();
     g_hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"LostIslandWindow",
                              L"Lost Island", WS_POPUP, g_mon.left, g_mon.top, 10, 10, nullptr, nullptr, inst, nullptr);
@@ -1877,6 +2148,9 @@ bool Create(HINSTANCE inst) {
     g_alpha.snap(0);
     g_alpha.t = 1;
     timerReset();
+
+    g_frameWake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    g_frameThread = std::thread(frameLoop);
 
     media::Start(g_hwnd);
     radios::Start(g_hwnd);
@@ -1900,14 +2174,22 @@ bool Create(HINSTANCE inst) {
 
     ShowWindow(g_hwnd, SW_SHOWNOACTIVATE);
     SetTimer(g_hwnd, kTimerTick, 1000, nullptr);
+    SetTimer(g_hwnd, kTimerBackdrop, 500, nullptr);
+    sampleBackdrop();
+    g_bd.lum.snap(g_bd.lum.t);
+    g_bd.tint = g_bd.want;
     kick();
     return true;
 }
 
 void Destroy() {
     if (!g_hwnd) return;
-    KillTimer(g_hwnd, kTimerAnim);
     KillTimer(g_hwnd, kTimerTick);
+    KillTimer(g_hwnd, kTimerBackdrop);
+    g_frameStop = true;
+    g_animating = true;   // let the frame thread see the stop flag
+    SetEvent(g_frameWake);
+    if (g_frameThread.joinable()) g_frameThread.join();
     if (g_demo) DeleteFileW((sys::CacheDir() + L"\\claude-status\\demo.json").c_str());
     downloads::Stop();
     brightness::Stop();
