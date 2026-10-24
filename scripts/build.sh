@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build LoopIsland.exe on Linux. Uses llvm-mingw when LLVM_MINGW is set or
+# Build loop-island.exe on Linux. Uses llvm-mingw when LLVM_MINGW is set or
 # found in ~/.local/opt, otherwise the distribution's MinGW-w64 GCC.
 set -e
 cd "$(dirname "$0")/.."
@@ -14,4 +14,4 @@ else
 fi
 cmake -S . -B build "$@" >/dev/null
 cmake --build build -j"$(nproc)"
-ls -la build/LoopIsland.exe
+ls -la build/loop-island.exe

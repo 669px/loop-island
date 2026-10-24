@@ -1,108 +1,138 @@
-# Loop Island
+<p align="center"><img src="media/icon.png" alt="loop-island icon" width="96"></p>
 
-A Dynamic Island for Windows 10/11 and Linux, written in C++ with Win32, Direct2D, DirectWrite and WinRT. It is one small `.exe` with nothing to install. On Linux it runs through Wine with a launcher script.
+<h1 align="center">loop-island</h1>
 
-<img src="media/activities.png" alt="The island showing the Claude spark and an orange 'Allow Bash?' request, with album art in a round bubble beside it" height="52">
+<p align="center">A Dynamic Island for your Windows and Linux desktop.<br>
+One small <code>.exe</code>, nothing to install, and it takes on the colors of whatever is behind it.</p>
 
-<img src="media/card.png" alt="The open card in the Midnight style: a music player with seek bar, a Claude Code session row, round controls with Sound lit in Lagoon teal, a volume bar, Claude, Codex and Cursor launchers, and the timer line" width="420">
+<p align="center">
+  <a href="https://github.com/669px/loop-island/releases/latest"><b>Download</b></a> ·
+  <a href="#install">Install</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#build-from-source">Build</a>
+</p>
 
-## What's new in 1.1
+<p align="center"><img src="media/activities.png" alt="loop-island showing a Claude Code request in orange, with album art in a round bubble beside it" height="52"></p>
 
-- **Adaptive island color.** The island samples the screen behind it twice a second. On dark wallpapers it gets a lifted fill, a rim and a soft glow tinted by the colors behind it, so it doesn't vanish. On light backgrounds it stays solid black with a deeper shadow. You can turn this off in Settings › Appearance.
+<p align="center"><img src="media/card.png" alt="The open card: music player, a Claude Code session, round controls with Sound lit in teal, a volume bar, launchers and the focus timer" width="420"></p>
 
-  <img src="media/adaptive.png" alt="The same island on a dark navy backdrop with a visible lit rim, and on a light cream backdrop as a solid black pill" height="50">
-- **Lagoon theme.** A cooler palette, a new Lagoon teal accent, and a **Midnight** card with a subtle gradient and a top highlight. Black and Graphite are still there.
-- **Smoother motion.** Frames follow the display's refresh through the compositor instead of a 15 ms timer, so motion is no longer uneven. Time is measured with the high-resolution counter, and springs are sub-stepped so they stay stable.
-- **Little animations.** Hover, press and on/off states fade instead of snapping. Content settles in from a slightly smaller size after each change, a new live activity cross-fades into the pill, the volume bar glides, and a waiting Claude Code request gently breathes in orange. **Reduce motion** turns the movement off.
-- **Faster drawing.** The drawing surface is no longer rebuilt on every frame while the card opens. Text sizes, typography and gradients are cached, and service state is read once per frame instead of dozens of times.
-- **Linux.** Icons and the notch shape now draw correctly under Wine, whose Direct2D flattens arcs into straight lines. There's a `loop-island` launcher with install, autostart and uninstall options, and the build works with any distribution's MinGW-w64.
-- **Fixes.** On the clock + weather face, playing music no longer disappears. The build no longer fails with GCC's MinGW. Bitmaps are never reused on a recreated render target.
+## Download
+
+Every release on the [Releases page](https://github.com/669px/loop-island/releases/latest) has three files:
+
+| File | What it is |
+|---|---|
+| `loop-island.exe` | The app for Windows 10 and 11. Download it and run it. |
+| `loop-island-win64-linux.zip` | The same exe plus the Linux launcher, README and license. |
+| Source code (zip / tar.gz) | The full source at that version. GitHub adds this automatically. |
 
 ## Install
 
 ### Windows
 
-1. Download `LoopIsland.exe` from [Releases](https://github.com/669px/loop-island/releases/latest).
-2. Run it from any folder. The island appears at the top of your main display, and Settings opens the first time.
-3. Optional: turn on **Start with Windows** in Settings › General.
+1. Download `loop-island.exe` from [Releases](https://github.com/669px/loop-island/releases/latest).
+2. Run it from any folder. The island appears at the top of your screen, and Settings opens the first time.
+3. To start it with Windows, turn on **Start with Windows** in Settings › General.
 
-Windows SmartScreen may warn about an unsigned app the first time. Choose **More info › Run anyway**.
+The exe isn't signed, so the first time Windows SmartScreen may show a warning. Click **More info › Run anyway**.
 
 ### Linux
 
-You need Wine 8 or newer and an X11 session or XWayland. A compositor (KDE, GNOME, picom…) gives the island its soft edges.
+loop-island runs through Wine. You need Wine 8 or newer and an X11 session or XWayland. With a compositor (KDE, GNOME, picom…) the island gets its soft edges.
 
 ```sh
-# Debian/Ubuntu: sudo apt install wine     Fedora: sudo dnf install wine     Arch: sudo pacman -S wine
-unzip LoopIsland-win64-linux.zip && cd LoopIsland
-./loop-island --install      # copies it to ~/.local and adds "Loop Island" to your app menu
+# Debian/Ubuntu: sudo apt install wine
+# Fedora:        sudo dnf install wine
+# Arch:          sudo pacman -S wine
+unzip loop-island-win64-linux.zip && cd loop-island
+./loop-island --install      # copies it to ~/.local and adds loop-island to your app menu
 loop-island                  # start it
-loop-island --autostart      # optional: start when you log in
-loop-island --uninstall
+loop-island --autostart      # optional: start it when you log in
+loop-island --uninstall      # remove it and its Wine prefix
 ```
 
-The launcher keeps its own Wine prefix in `~/.local/share/loop-island/prefix`. Any `LoopIsland.exe` option works through it, for example `loop-island --toggle`, which you can bind to a key in your desktop's shortcut settings.
+Any option of `loop-island.exe` also works through the launcher. For example, bind `loop-island --toggle` to a key in your desktop's shortcut settings.
 
-On Linux, music, Wi-Fi, Bluetooth, brightness and battery come from Wine's emulation of the Windows services, so some of them may be missing. The clock, weather, timer, clipboard history, Claude Code status, launchers and peeks all work.
+## Features
 
-## The island
+### Adaptive color
 
-- **Resting pill.** A black capsule, 37 px tall like the iPhone's island, with the Windows mark and the clock, or the clock and the weather. Switch the shape to **Notch** to hang it from the top edge like a MacBook.
-- **Live activities.** The most important activity fills the pill, and the next one gets its own round bubble beside it:
-  1. **Claude Code needs you.** The Claude spark and, in orange, what it is asking ("Allow Bash?").
-  2. **Music.** Album art, title and EQ bars that move with the real output level, in the album's color.
-  3. **Claude Code working.** A spinning spark and what it is doing ("Edit app.cpp", "Run tests"). **Done** stays for 8 seconds.
-  4. **Downloads** from Chrome, Edge and Firefox in your Downloads folder, with the size received.
-  5. **Focus timer.** A progress ring and the time left.
-- **Peeks.** Volume, Caps Lock, plugging in the charger, a new track, a picked color and saved screenshots show for a moment and then go away.
+Twice a second, loop-island reads the screen just behind the island. On a dark wallpaper the island lifts slightly and gets a thin edge and a soft glow tinted with the colors behind it, so it never disappears. On a light background it stays deep black with a soft shadow. The change fades in smoothly.
 
-| Volume peek | Notch shape |
+<p align="center"><img src="media/adaptive.png" alt="The island on a dark navy background with a lit edge, and on a light cream background as solid black" height="50"></p>
+
+You can turn it off in Settings › Appearance.
+
+### Live activities
+
+The most important activity fills the island, and the next one gets its own round bubble beside it.
+
+- **Claude Code needs you.** Shows the Claude spark and the question it's asking, such as "Allow Bash?", with a gentle orange pulse.
+- **Music.** Shows album art, the title, and EQ bars that move with the real sound, in the album's color. Spotify, browsers, Media Player and VLC all work.
+- **Claude Code working.** A spinning spark and what it's doing ("Edit app.cpp", "Run tests").
+- **Downloads** from Chrome, Edge and Firefox, with the size so far.
+- **Focus timer** with a progress ring.
+
+### Peeks
+
+Volume, Caps Lock, the charger, a new song, a picked color and screenshots show up briefly and then go away.
+
+| Volume | Notch shape |
 |---|---|
-| <img src="media/peek.png" alt="Volume peek with a bar at 62" height="44"> | <img src="media/notch.png" alt="Notch shape hanging from the top edge with a Claude request" height="44"> |
+| <img src="media/peek.png" alt="Volume peek with a bar at 62" height="44"> | <img src="media/notch.png" alt="The notch shape hanging from the top edge of the screen" height="44"> |
 
-### Using it
+### The card
 
-- **Click** the pill to open the card. Click outside it or press <kbd>Esc</kbd> to close it.
-- <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd> opens the card from anywhere. You can change it in Settings › Keyboard.
-- **Scroll** over the pill to change the volume, and **middle-click** to play or pause.
-- **Right-click** the pill, or the tray icon, for the menu: open card, focus timer, Settings, quit.
-- Click the **bubble** to jump to Claude Code's terminal, open the player, or pause the timer.
+Click the island to open the card:
 
-## The card
+- **Music player** with seek bar and controls.
+- **Claude Code sessions.** Click one to jump to its terminal.
+- **Quick controls:** Wi-Fi, Bluetooth, Sound, Mic, Focus, Dark mode, Cast, Screenshot, Area snip, Color picker, Clipboard history and Lock. You can also add Record, Night light, Files, Wallpaper, Timer, Power and Settings.
+- **Volume and brightness** sliders.
+- **Launchers** for Claude, Codex and Cursor, plus Terminal and PowerShell.
+- **Focus timer, weather and battery.**
 
-- **Music player.** Round cover, title, artist, the app's name, a seek bar you can click, and previous, play and next. The EQ bars take the album's color, or the accent color for dull covers. When a player publishes no track length, the seek bar is hidden.
-- **Claude Code sessions.** Each session with its project and what it is doing. Click one to bring its terminal to the front.
-- **Controls.** Round buttons, blue when on: Wi-Fi, Bluetooth, Sound, Mic, Focus, Dark mode, Cast, Screen (full screenshot saved to `Pictures\Screenshots` and copied), Area (Windows' snipping overlay), Color picker with a magnifier, Clipboard history, Lock. Night light, Record, Files, Wallpaper, Timer, Power and Settings can be added. Right-click a control to open its page in Windows Settings.
-- **Volume and brightness** bars. Brightness shows on laptops (WMI) and on external monitors that support DDC/CI.
-- **Launchers** with the Claude, Codex and Cursor logos for their CLIs, opened in Windows Terminal. Terminal and PowerShell can be added.
-- **Info line.** Focus timer (click to start or pause, scroll to set 5 to 90 minutes), weather, battery, and the Edit, Power and Settings buttons.
-- **Wallpapers** <img src="media/wallpapers.png" alt="The wallpaper picker in the card: a carousel with a Dragon Ball wallpaper in the middle inside a blue ring, neighbours on each side, and the line goku-dragon-ball-3840x2160-19055.jpg · current 3/6" width="400">
+To rearrange the card, click the pencil or press and hold any control. Drag controls to move them, tap − to remove one and + to add one.
 
-  (add the Wallpaper control in edit mode, or run `LoopIsland.exe --wallpapers`): a carousel of `Pictures\Wallpapers`, after Tide Island's switcher. The middle card is full size and its neighbours shrink and fade. Click a side card, scroll or press ←/→ to move; click the middle card or press Enter to set it for every monitor. Type to search by name, Backspace to edit, Esc to clear or close. Pick the folder and the fit (Fill, Fit, Stretch, Center, Tile, Span) in **Settings → Controls → Wallpapers**.
+<p align="center"><img src="media/edit.png" alt="Edit mode: controls with minus badges and a tray of extra controls with plus badges" width="380"></p>
 
-  <img src="media/settings-wallpapers.png" alt="Settings, Controls page: the Wallpapers group with the folder C:\users\byte\Pictures\Wallpapers, Open and Choose buttons, and Fit set to Fill" width="480"> Thumbnails are made in the background and dropped when the picker closes.
-- **Clipboard** lists the last 25 pieces of text you copied. Click one to copy it again. History is kept in memory only, and text that password managers mark as private is skipped.
-- **Power** has Lock, Sign out, Sleep, Restart and Shut down. Every action except Lock asks for a second click within 4 seconds.
+### Smooth motion
 
-<img src="media/edit.png" alt="Edit mode: every control has a minus badge, a tray below offers Record, Night light, Power, Timer, Settings, Files, Terminal and PowerShell with plus badges" width="440">
+Every change of shape runs on a spring, synced to your display's refresh rate. Buttons ease when you hover over or press them, toggles fade between on and off, and new content settles in gently. **Reduce motion** in Settings tones all of this down.
 
-**Edit the card:** click the pencil, or press and hold any control. Drag a control onto another to move it, click − to remove it, and click + in the tray to add it. Click ✓ when you're done.
+### Lagoon theme
+
+The new default theme is a cool, deep palette with a teal **Lagoon** accent and a **Midnight** card. Eight other accent colors and the Black and Graphite card styles are also available.
+
+## Using it
+
+| Do this | To |
+|---|---|
+| Click the island | Open or close the card |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd> | Open the card from anywhere (change it in Settings › Keyboard) |
+| Scroll over the island | Change the volume |
+| Middle-click | Play or pause music |
+| Right-click | Menu: card, focus timer, Settings, quit |
+| <kbd>Esc</kbd> or click outside | Close the card |
 
 ## Settings
 
-Settings looks and works like macOS System Settings: a sidebar with search, grouped lists, switches, sliders, pop-up menus and accent colors. Every change applies right away.
+<p align="center"><img src="media/settings-appearance.png" alt="Settings, Appearance page: Lagoon accent, Midnight card style and the Adaptive island color switch" width="600"></p>
 
 | Page | What you can change |
 |---|---|
-| General | Start with Windows, open the card on hover, hide over fullscreen apps, reduce motion, reset |
-| Island | Island or Notch shape (with a live preview), pill face, display (main or the one with the pointer), distance from top, size |
-| Appearance | Accent color (Lagoon and the eight macOS colors), Midnight, black or graphite card, adaptive island color, 24-hour clock, seconds, EQ bars |
-| Controls | Order, add and remove controls and launchers |
-| Live Activities | Each activity and peek, focus timer length and chime, weather city and units |
-| Claude Code | Install or remove the status hooks |
+| General | Start with Windows, open on hover, hide over fullscreen apps, reduce motion |
+| Island | Island or notch shape, what the island shows, which display, position and size |
+| Appearance | Accent color, card style, adaptive color, clock format, EQ bars |
+| Controls | Which controls and launchers are on the card, and their order |
+| Live Activities | Which activities and peeks to show, timer length, weather city |
+| Claude Code | Install or remove the Claude Code status hook |
 | Keyboard | The shortcut that opens the card |
 
-<img src="media/settings-appearance.png" alt="Settings, Appearance page: accent color swatches, card style, 24-hour clock, show seconds and EQ bars" width="360"> <img src="media/settings-claude.png" alt="Settings, Claude Code page: hook status with Install and Remove buttons" width="360">
+<p align="center">
+  <img src="media/settings-island.png" alt="Settings, Island page with a live preview" width="400">
+  <img src="media/settings-controls.png" alt="Settings, Controls page listing the card's controls" width="400">
+</p>
 
 Settings are saved in `%APPDATA%\LoopIsland\config.json`.
 
@@ -111,78 +141,51 @@ Settings are saved in `%APPDATA%\LoopIsland\config.json`.
 Open Settings › Claude Code and click **Install**, or run:
 
 ```powershell
-LoopIsland.exe --setup-claude-status
+loop-island.exe --setup-claude-status
 ```
 
-It copies a small hook to `%LOCALAPPDATA%\LoopIsland\LoopIslandHook.exe`, backs up `~/.claude/settings.json`, and adds the hook to Claude Code's session events next to any hooks you already have. New sessions then report what they are doing. `--remove-claude-status` takes the hooks out again.
+This adds a small hook to Claude Code, and your sessions then show up in the island. The hook stays silent and never slows Claude Code down. To remove it, run `loop-island.exe --remove-claude-status`.
 
-The hook writes one small file per session to `%LOCALAPPDATA%\LoopIsland\claude-status\`, prints nothing, and always exits 0, so it never slows Claude Code down or adds text to the conversation.
+<p align="center"><img src="media/settings-claude.png" alt="Settings, Claude Code page with Install and Remove buttons" width="600"></p>
 
 ## Command line
 
 ```text
-LoopIsland.exe                     start (or open Settings when already running)
-LoopIsland.exe --toggle            open or close the card
-LoopIsland.exe --wallpapers        open the wallpaper picker
-LoopIsland.exe --timer             start or pause the focus timer
-LoopIsland.exe --settings [page]   open Settings (general, island, appearance, controls, activities, claude, keyboard, about)
-LoopIsland.exe --quit              quit
+loop-island.exe                     start (or open Settings if it's already running)
+loop-island.exe --toggle            open or close the card
+loop-island.exe --wallpapers        open the wallpaper picker
+loop-island.exe --timer             start or pause the focus timer
+loop-island.exe --settings [page]   open Settings at a page
+loop-island.exe --quit              quit
 ```
 
-On Linux, use `loop-island` in place of `LoopIsland.exe`.
+On Linux, use `loop-island` in place of `loop-island.exe`.
 
-## How it works
+## Build from source
 
-- **One layered window.** The island is a top-most `WS_EX_LAYERED` window. Each frame is drawn with Direct2D into a 32-bit surface and handed to `UpdateLayeredWindow`, so transparent pixels click through to whatever is underneath. The window is only as tall as what it shows.
-- **Springs.** Width, height, corner radius, content fade and the bubble are separate damped springs, stepped at about 60 fps only while something moves. At rest the island redraws once a second for the clock.
-- **Services.** Each system service has a small module in `src/services/`:
-  - Core Audio for volume, mute, mic and the output level.
-  - Global System Media Transport Controls (WinRT) for now playing.
-  - `Windows.Devices.Radios` for Wi-Fi and Bluetooth.
-  - The WLAN API for the network name.
-  - WMI or DDC/CI for brightness.
-  - WinHTTP and wttr.in for weather.
-  - A clipboard format listener for clipboard history.
-  - Folder change notifications for downloads and Claude Code.
-
-  Slow calls run on worker threads and post a message when something changes.
-- **No WinRT projection.** The WinRT interfaces it needs are declared by hand in `src/services/winrt_abi.h`. Their IIDs and method order were taken from the Windows SDK metadata, and the generic IIDs were computed with the WinRT algorithm.
-- **Icons are vectors** drawn in code in the style of SF Symbols, so they look the same on every Windows version and need no icon font.
-
-- **Adaptive color.** Twice a second the island copies a small strip of the screen behind it, scaled down to 24×6 pixels. On Windows, a screen copy without `CAPTUREBLT` leaves out layered windows, so the island never samples itself; under Wine it reads the strip just below its window instead. Brightness and hue ease to their new values over about half a second.
-- **Frame pacing.** While something moves, a small thread waits on `DwmFlush` and posts one frame message per composition pass, never queuing more than one. Where `DwmFlush` doesn't block (Wine, composition off), a 60 Hz high-resolution timer stands in.
-
-## Build
-
-On Linux (any distribution with MinGW-w64, or with [llvm-mingw](https://github.com/mstorsjo/llvm-mingw)):
+On Linux:
 
 ```sh
-sudo apt install g++-mingw-w64-x86-64-posix cmake    # Debian/Ubuntu
-./scripts/build.sh                                    # writes build/LoopIsland.exe
+sudo apt install g++-mingw-w64-x86-64-posix cmake   # Debian/Ubuntu
+./scripts/build.sh                                   # writes build/loop-island.exe
 ```
 
-`scripts/build.sh` uses llvm-mingw when `LLVM_MINGW` is set or one is found in `~/.local/opt`, and the system MinGW-w64 otherwise. GitHub Actions builds every push the same way and attaches the `.exe` and the Linux zip to tagged releases.
-
-On Windows with Visual Studio 2022 (Desktop C++ workload):
+On Windows, with Visual Studio 2022:
 
 ```powershell
 cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-## Limits
+Every push is built by GitHub Actions. To publish a release, push a tag such as `v1.1.0`: the workflow attaches `loop-island.exe` and `loop-island-win64-linux.zip` to it.
 
-- Windows has no public way to switch Focus (Do Not Disturb) or Night light, so those buttons open their Settings pages.
-- **Record** sends Snipping Tool's recording shortcut, which needs a current Windows 11.
-- **Wi-Fi** and **Bluetooth** need a radio that Windows exposes as switchable. Otherwise the buttons open Settings.
-- Notification banners are not shown. Reading other apps' notifications requires a packaged app with the notification listener capability.
-- The screenshots in this README were rendered with the release build running under Wine on Linux, so fonts differ from Windows (Noto Sans instead of Segoe UI).
-- The sample song and Claude request in the screenshots come from `LOOPISLAND_DEMO=1`, an environment variable that exists only for screenshots.
+## Good to know
 
-- On Linux the island is an X11 window through Wine, so on a Wayland session it needs XWayland. It can't sit above fullscreen Wayland-native apps.
+- Windows has no public API for Focus (Do Not Disturb) or Night light, so those buttons open their Settings pages.
+- Wi-Fi and Bluetooth need a radio that Windows can switch. Otherwise the buttons open Settings.
+- On Linux, music, Wi-Fi, Bluetooth, brightness and battery depend on Wine's support and may be missing. The clock, weather, timer, clipboard, Claude Code status, launchers and peeks all work.
+- The screenshots were taken on Linux, so the font is Noto Sans instead of Segoe UI.
 
-## Credits
+## License
 
-Loop Island is made by [669px](https://github.com/669px). It builds on MIT-licensed open-source code by byte4day; that copyright notice is kept in [LICENSE](LICENSE) as the license requires. The island's proportions follow Apple's Live Activity guidelines for the Dynamic Island.
-
-MIT License. See [LICENSE](LICENSE).
+loop-island is made by [669px](https://github.com/669px) and released under the MIT License. See [LICENSE](LICENSE).

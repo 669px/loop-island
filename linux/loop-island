@@ -2,7 +2,7 @@
 # Run Loop Island on Linux through Wine.
 #
 #   loop-island                 start (or open Settings when already running)
-#   loop-island --toggle        any LoopIsland.exe option is passed through
+#   loop-island --toggle        any loop-island.exe option is passed through
 #   loop-island --install       copy into ~/.local, add a menu entry
 #   loop-island --autostart     also start it when you log in
 #   loop-island --uninstall
@@ -20,7 +20,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
 here="$(cd "$(dirname "$0")" && pwd)"
 exe=""
-for c in "$here/LoopIsland.exe" "$here/../build/LoopIsland.exe" "$DATA/LoopIsland.exe"; do
+for c in "$here/loop-island.exe" "$here/../build/loop-island.exe" "$DATA/loop-island.exe"; do
     [ -f "$c" ] && { exe="$c"; break; }
 done
 
@@ -45,9 +45,9 @@ DESKTOP
 
 case "$1" in
 --install)
-    [ -n "$exe" ] || { echo "LoopIsland.exe not found next to this script" >&2; exit 1; }
+    [ -n "$exe" ] || { echo "loop-island.exe not found next to this script" >&2; exit 1; }
     mkdir -p "$DATA" "$BIN" "$APPS"
-    cp "$exe" "$DATA/LoopIsland.exe"
+    cp "$exe" "$DATA/loop-island.exe"
     [ -f "$here/icon.png" ] && cp "$here/icon.png" "$DATA/icon.png"
     [ -f "$here/../media/icon.png" ] && cp "$here/../media/icon.png" "$DATA/icon.png"
     cp "$0" "$BIN/loop-island" && chmod +x "$BIN/loop-island"
@@ -60,13 +60,13 @@ case "$1" in
     echo "Loop Island will start when you log in."
     exit 0 ;;
 --uninstall)
-    "$(wine_cmd)" "$DATA/LoopIsland.exe" --quit 2>/dev/null || true
+    "$(wine_cmd)" "$DATA/loop-island.exe" --quit 2>/dev/null || true
     rm -rf "$DATA" "$BIN/loop-island" "$APPS/loop-island.desktop" "$AUTOSTART/loop-island.desktop"
     echo "Removed Loop Island and its Wine prefix."
     exit 0 ;;
 esac
 
-[ -n "$exe" ] || { echo "LoopIsland.exe not found. Run: loop-island --install" >&2; exit 1; }
+[ -n "$exe" ] || { echo "loop-island.exe not found. Run: loop-island --install" >&2; exit 1; }
 wine="$(wine_cmd)"
 if [ ! -d "$WINEPREFIX" ]; then
     mkdir -p "$WINEPREFIX"

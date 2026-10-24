@@ -9,6 +9,7 @@ endif()
 
 file(GLOB SOURCES CONFIGURE_DEPENDS src/*.cpp src/services/*.cpp)
 add_executable(LoopIsland WIN32 ${SOURCES} res/app.rc)
+set_target_properties(LoopIsland PROPERTIES OUTPUT_NAME loop-island)
 target_include_directories(LoopIsland PRIVATE src src/services)
 target_compile_definitions(LoopIsland PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
   _WIN32_WINNT=0x0A00 LI_VERSION="${PROJECT_VERSION}")

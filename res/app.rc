@@ -18,7 +18,7 @@ BEGIN
       VALUE "ProductName", "Loop Island"
       VALUE "ProductVersion", "1.1.0"
       VALUE "LegalCopyright", "MIT License"
-      VALUE "OriginalFilename", "LoopIsland.exe"
+      VALUE "OriginalFilename", "loop-island.exe"
     END
   END
   BLOCK "VarFileInfo"

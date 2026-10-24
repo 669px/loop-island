@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  windows-exe:
+  build:
     # Cross-compiled on Linux, the same way contributors on Linux build it.
     runs-on: ubuntu-24.04
     steps:
@@ -21,17 +21,20 @@ jobs:
         run: ./scripts/build.sh
       - name: Package
         run: |
-          mkdir -p dist/LoopIsland
-          cp build/LoopIsland.exe README.md LICENSE linux/loop-island media/icon.png dist/LoopIsland/
-          cd dist && zip -r LoopIsland-win64-linux.zip LoopIsland
+          mkdir -p dist/loop-island
+          cp build/loop-island.exe README.md LICENSE linux/loop-island media/icon.png dist/loop-island/
+          cd dist && zip -r loop-island-win64-linux.zip loop-island
       - uses: actions/upload-artifact@v4
         with:
-          name: LoopIsland
-          path: dist/LoopIsland-win64-linux.zip
+          name: loop-island
+          path: |
+            build/loop-island.exe
+            dist/loop-island-win64-linux.zip
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          name: loop-island ${{ github.ref_name }}
           files: |
-            build/LoopIsland.exe
-            dist/LoopIsland-win64-linux.zip
+            build/loop-island.exe
+            dist/loop-island-win64-linux.zip

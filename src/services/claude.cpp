@@ -1,6 +1,6 @@
 // Live Claude Code status.
 //
-// Claude Code runs `LoopIslandHook.exe --claude-hook` on session events with
+// Claude Code runs `loop-island-hook.exe --claude-hook` on session events with
 // a JSON payload on stdin. The hook writes one small file per session to
 // %LOCALAPPDATA%\LoopIsland\claude-status\<session>.json and pokes the running
 // island, which re-reads the folder. The hook never prints and always exits 0.
@@ -21,7 +21,7 @@
 namespace {
 const char* kEvents[] = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
                          "Notification", "Stop", "PreCompact", "SessionEnd"};
-const wchar_t* kMarker = L"LoopIslandHook.exe";
+const wchar_t* kMarker = L"loop-island-hook.exe";
 constexpr double kDoneSeconds = 8;
 constexpr double kStaleSeconds = 30 * 60;
 
@@ -32,7 +32,7 @@ std::thread g_watch;
 HANDLE g_stop = nullptr;
 
 std::wstring statusDir() { return sys::CacheDir() + L"\\claude-status"; }
-std::wstring hookExe() { return sys::CacheDir() + L"\\LoopIslandHook.exe"; }
+std::wstring hookExe() { return sys::CacheDir() + L"\\loop-island-hook.exe"; }
 std::wstring claudeDir() {
     PWSTR p = nullptr;
     std::wstring out;

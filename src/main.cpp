@@ -1,13 +1,13 @@
 // Loop Island: entry point, single instance, command line.
 //
-//   LoopIsland.exe                     start (or open Settings if already running)
-//   LoopIsland.exe --toggle            open or close the card
-//   LoopIsland.exe --wallpapers        open the wallpaper picker
-//   LoopIsland.exe --timer             start or pause the focus timer
-//   LoopIsland.exe --settings [page]   open the control panel
-//   LoopIsland.exe --quit              quit the running island
-//   LoopIsland.exe --setup-claude-status / --remove-claude-status
-//   LoopIsland.exe --claude-hook       (run by Claude Code, reads JSON on stdin)
+//   loop-island.exe                     start (or open Settings if already running)
+//   loop-island.exe --toggle            open or close the card
+//   loop-island.exe --wallpapers        open the wallpaper picker
+//   loop-island.exe --timer             start or pause the focus timer
+//   loop-island.exe --settings [page]   open the control panel
+//   loop-island.exe --quit              quit the running island
+//   loop-island.exe --setup-claude-status / --remove-claude-status
+//   loop-island.exe --claude-hook       (run by Claude Code, reads JSON on stdin)
 #include <windows.h>
 #include <objbase.h>
 #include <shellapi.h>
