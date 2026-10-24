@@ -177,7 +177,7 @@ cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-Every push is built by GitHub Actions. To publish a release, push a tag such as `v1.1.0`: the workflow attaches `loop-island.exe` and `loop-island-win64-linux.zip` to it.
+GitHub Actions builds every push. Each push to `main` publishes the release for the version in `CMakeLists.txt`, with `loop-island.exe` and `loop-island-win64-linux.zip` attached. To start a new release, bump the version and update `.github/release-notes.md`.
 
 ## Good to know
 
