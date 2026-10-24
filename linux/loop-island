@@ -1,0 +1,75 @@
+#!/bin/sh
+# Run Loop Island on Linux through Wine.
+#
+#   loop-island                 start (or open Settings when already running)
+#   loop-island --toggle        any LoopIsland.exe option is passed through
+#   loop-island --install       copy into ~/.local, add a menu entry
+#   loop-island --autostart     also start it when you log in
+#   loop-island --uninstall
+#
+# Wine draws the island as a shaped X11 window, so it needs an X server or
+# XWayland. On Wayland compositors without XWayland it will not show.
+set -e
+
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}/loop-island"
+BIN="$HOME/.local/bin"
+APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
+export WINEPREFIX="${LOOPISLAND_WINEPREFIX:-$DATA/prefix}"
+export WINEDEBUG="${WINEDEBUG:--all}"
+
+here="$(cd "$(dirname "$0")" && pwd)"
+exe=""
+for c in "$here/LoopIsland.exe" "$here/../build/LoopIsland.exe" "$DATA/LoopIsland.exe"; do
+    [ -f "$c" ] && { exe="$c"; break; }
+done
+
+wine_cmd() {
+    for w in wine wine64; do command -v "$w" >/dev/null && { echo "$w"; return; }; done
+    echo "Loop Island needs Wine 8 or newer: https://wiki.winehq.org/Download" >&2
+    exit 1
+}
+
+desktop_entry() {
+    cat <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Loop Island
+Comment=A Dynamic Island for your desktop
+Exec=$BIN/loop-island
+Icon=$DATA/icon.png
+Categories=Utility;
+StartupNotify=false
+DESKTOP
+}
+
+case "$1" in
+--install)
+    [ -n "$exe" ] || { echo "LoopIsland.exe not found next to this script" >&2; exit 1; }
+    mkdir -p "$DATA" "$BIN" "$APPS"
+    cp "$exe" "$DATA/LoopIsland.exe"
+    [ -f "$here/icon.png" ] && cp "$here/icon.png" "$DATA/icon.png"
+    [ -f "$here/../media/icon.png" ] && cp "$here/../media/icon.png" "$DATA/icon.png"
+    cp "$0" "$BIN/loop-island" && chmod +x "$BIN/loop-island"
+    desktop_entry > "$APPS/loop-island.desktop"
+    echo "Installed. Start it from your app menu or run: loop-island"
+    exit 0 ;;
+--autostart)
+    mkdir -p "$AUTOSTART"
+    desktop_entry > "$AUTOSTART/loop-island.desktop"
+    echo "Loop Island will start when you log in."
+    exit 0 ;;
+--uninstall)
+    "$(wine_cmd)" "$DATA/LoopIsland.exe" --quit 2>/dev/null || true
+    rm -rf "$DATA" "$BIN/loop-island" "$APPS/loop-island.desktop" "$AUTOSTART/loop-island.desktop"
+    echo "Removed Loop Island and its Wine prefix."
+    exit 0 ;;
+esac
+
+[ -n "$exe" ] || { echo "LoopIsland.exe not found. Run: loop-island --install" >&2; exit 1; }
+wine="$(wine_cmd)"
+if [ ! -d "$WINEPREFIX" ]; then
+    mkdir -p "$WINEPREFIX"
+    WINEDLLOVERRIDES="mscoree,mshtml=" "$wine" wineboot -i >/dev/null 2>&1
+fi
+exec "$wine" "$exe" "$@"

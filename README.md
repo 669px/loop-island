@@ -1,36 +1,66 @@
-# Lost Island for Windows
+# Loop Island
 
-A Dynamic Island for Windows 10 and 11, written in C++ with Win32, Direct2D, DirectWrite and WinRT. It is one small `.exe` with nothing to install, and it is the Windows version of [Lost Island for Sway](https://github.com/byte4day/lost-island-archcraft-sway).
+A Dynamic Island for Windows 10/11 and Linux, written in C++ with Win32, Direct2D, DirectWrite and WinRT. It is one small `.exe` with nothing to install. On Linux it runs through Wine with a launcher script.
 
-<img src="media/activities.png" alt="The island showing the Claude spark and an orange 'Allow Bash?' request, with album art in a round bubble beside it" height="60">
+<img src="media/activities.png" alt="The island showing the Claude spark and an orange 'Allow Bash?' request, with album art in a round bubble beside it" height="52">
 
-<img src="media/card.png" alt="The open card: a music player tinted by the album art with seek bar and play controls, a Claude Code session row, two rows of round controls, a volume bar, Claude, Codex and Cursor launchers, and a line with the focus timer, weather and battery" width="440">
+<img src="media/card.png" alt="The open card in the Midnight style: a music player with seek bar, a Claude Code session row, round controls with Sound lit in Lagoon teal, a volume bar, Claude, Codex and Cursor launchers, and the timer line" width="420">
 
-<img src="media/settings-island.png" alt="The control panel in the style of macOS System Settings, on the Island page: a live preview, Island or Notch shape, pill face, display, distance from top and size" width="720">
+Loop Island is a reworked version of [Lost Island for Windows](https://github.com/byte4day/lost-island-windows) by byte4day.
+
+## What's new compared with Lost Island 1.0.2
+
+- **Adaptive island color.** The island samples the screen behind it twice a second. On dark wallpapers it gets a lifted fill, a rim and a soft glow tinted by the colors behind it, so it doesn't vanish. On light backgrounds it stays solid black with a deeper shadow. You can turn this off in Settings › Appearance.
+
+  <img src="media/adaptive.png" alt="The same island on a dark navy backdrop with a visible lit rim, and on a light cream backdrop as a solid black pill" height="50">
+- **Lagoon theme.** A cooler palette, a new Lagoon teal accent, and a **Midnight** card with a subtle gradient and a top highlight. Black and Graphite are still there.
+- **Smoother motion.** Frames follow the display's refresh through the compositor instead of a 15 ms timer, so motion is no longer uneven. Time is measured with the high-resolution counter, and springs are sub-stepped so they stay stable.
+- **Little animations.** Hover, press and on/off states fade instead of snapping. Content settles in from a slightly smaller size after each change, a new live activity cross-fades into the pill, the volume bar glides, and a waiting Claude Code request gently breathes in orange. **Reduce motion** turns the movement off.
+- **Faster drawing.** The drawing surface is no longer rebuilt on every frame while the card opens. Text sizes, typography and gradients are cached, and service state is read once per frame instead of dozens of times.
+- **Linux.** Icons and the notch shape now draw correctly under Wine, whose Direct2D flattens arcs into straight lines. There's a `loop-island` launcher with install, autostart and uninstall options, and the build works with any distribution's MinGW-w64.
+- **Fixes.** On the clock + weather face, playing music no longer disappears. The build no longer fails with GCC's MinGW. Bitmaps are never reused on a recreated render target.
 
 ## Install
 
-1. Download `LostIsland.exe` from [Releases](https://github.com/byte4day/lost-island-windows/releases/latest). The zip has the same `.exe` with the README and license.
-2. Run `LostIsland.exe` from any folder. The island appears at the top of your main display, and Settings opens the first time.
+### Windows
+
+1. Download `LoopIsland.exe` from [Releases](https://github.com/669px/loop-island/releases/latest).
+2. Run it from any folder. The island appears at the top of your main display, and Settings opens the first time.
 3. Optional: turn on **Start with Windows** in Settings › General.
 
 Windows SmartScreen may warn about an unsigned app the first time. Choose **More info › Run anyway**.
+
+### Linux
+
+You need Wine 8 or newer and an X11 session or XWayland. A compositor (KDE, GNOME, picom…) gives the island its soft edges.
+
+```sh
+# Debian/Ubuntu: sudo apt install wine     Fedora: sudo dnf install wine     Arch: sudo pacman -S wine
+unzip LoopIsland-win64-linux.zip && cd LoopIsland
+./loop-island --install      # copies it to ~/.local and adds "Loop Island" to your app menu
+loop-island                  # start it
+loop-island --autostart      # optional: start when you log in
+loop-island --uninstall
+```
+
+The launcher keeps its own Wine prefix in `~/.local/share/loop-island/prefix`. Any `LoopIsland.exe` option works through it, for example `loop-island --toggle`, which you can bind to a key in your desktop's shortcut settings.
+
+On Linux, music, Wi-Fi, Bluetooth, brightness and battery come from Wine's emulation of the Windows services, so some of them may be missing. The clock, weather, timer, clipboard history, Claude Code status, launchers and peeks all work.
 
 ## The island
 
 - **Resting pill.** A black capsule, 37 px tall like the iPhone's island, with the Windows mark and the clock, or the clock and the weather. Switch the shape to **Notch** to hang it from the top edge like a MacBook.
 - **Live activities.** The most important activity fills the pill, and the next one gets its own round bubble beside it:
   1. **Claude Code needs you.** The Claude spark and, in orange, what it is asking ("Allow Bash?").
-  2. **Music.** Album art, title and EQ bars that move with the real output level, in the album's color. The source is Windows' media controls, so Spotify, browsers, Media Player and VLC all work.
+  2. **Music.** Album art, title and EQ bars that move with the real output level, in the album's color.
   3. **Claude Code working.** A spinning spark and what it is doing ("Edit app.cpp", "Run tests"). **Done** stays for 8 seconds.
   4. **Downloads** from Chrome, Edge and Firefox in your Downloads folder, with the size received.
   5. **Focus timer.** A progress ring and the time left.
 - **Peeks.** Volume, Caps Lock, plugging in the charger, a new track, a picked color and saved screenshots show for a moment and then go away.
-- **Motion.** Every change of shape runs on a spring: the island overshoots a little and settles. Buttons press in, and edit mode jiggles. **Reduce motion** in Settings turns the overshoot off.
 
-| Resting | Volume peek | Notch with a timer (orange accent) |
-|---|---|---|
-| <img src="media/pill.png" alt="Resting pill with the Windows mark and 11:14 PM" height="40"> | <img src="media/peek.png" alt="Volume peek with a bar at 62" height="40"> | <img src="media/notch.png" alt="Notch shape with an orange timer ring and 17:58" height="34"> |
+| Volume peek | Notch shape |
+|---|---|
+| <img src="media/peek.png" alt="Volume peek with a bar at 62" height="44"> | <img src="media/notch.png" alt="Notch shape hanging from the top edge with a Claude request" height="44"> |
 
 ### Using it
 
@@ -50,7 +80,7 @@ Windows SmartScreen may warn about an unsigned app the first time. Choose **More
 - **Info line.** Focus timer (click to start or pause, scroll to set 5 to 90 minutes), weather, battery, and the Edit, Power and Settings buttons.
 - **Wallpapers** <img src="media/wallpapers.png" alt="The wallpaper picker in the card: a carousel with a Dragon Ball wallpaper in the middle inside a blue ring, neighbours on each side, and the line goku-dragon-ball-3840x2160-19055.jpg · current 3/6" width="400">
 
-  (add the Wallpaper control in edit mode, or run `LostIsland.exe --wallpapers`): a carousel of `Pictures\Wallpapers`, after Tide Island's switcher. The middle card is full size and its neighbours shrink and fade. Click a side card, scroll or press ←/→ to move; click the middle card or press Enter to set it for every monitor. Type to search by name, Backspace to edit, Esc to clear or close. Pick the folder and the fit (Fill, Fit, Stretch, Center, Tile, Span) in **Settings → Controls → Wallpapers**.
+  (add the Wallpaper control in edit mode, or run `LoopIsland.exe --wallpapers`): a carousel of `Pictures\Wallpapers`, after Tide Island's switcher. The middle card is full size and its neighbours shrink and fade. Click a side card, scroll or press ←/→ to move; click the middle card or press Enter to set it for every monitor. Type to search by name, Backspace to edit, Esc to clear or close. Pick the folder and the fit (Fill, Fit, Stretch, Center, Tile, Span) in **Settings → Controls → Wallpapers**.
 
   <img src="media/settings-wallpapers.png" alt="Settings, Controls page: the Wallpapers group with the folder C:\users\byte\Pictures\Wallpapers, Open and Choose buttons, and Fit set to Fill" width="480"> Thumbnails are made in the background and dropped when the picker closes.
 - **Clipboard** lists the last 25 pieces of text you copied. Click one to copy it again. History is kept in memory only, and text that password managers mark as private is skipped.
@@ -68,7 +98,7 @@ Settings looks and works like macOS System Settings: a sidebar with search, grou
 |---|---|
 | General | Start with Windows, open the card on hover, hide over fullscreen apps, reduce motion, reset |
 | Island | Island or Notch shape (with a live preview), pill face, display (main or the one with the pointer), distance from top, size |
-| Appearance | Accent color (the eight macOS colors), black or graphite card, 24-hour clock, seconds, EQ bars |
+| Appearance | Accent color (Lagoon and the eight macOS colors), Midnight, black or graphite card, adaptive island color, 24-hour clock, seconds, EQ bars |
 | Controls | Order, add and remove controls and launchers |
 | Live Activities | Each activity and peek, focus timer length and chime, weather city and units |
 | Claude Code | Install or remove the status hooks |
@@ -76,29 +106,32 @@ Settings looks and works like macOS System Settings: a sidebar with search, grou
 
 <img src="media/settings-appearance.png" alt="Settings, Appearance page: accent color swatches, card style, 24-hour clock, show seconds and EQ bars" width="360"> <img src="media/settings-claude.png" alt="Settings, Claude Code page: hook status with Install and Remove buttons" width="360">
 
-Settings are saved in `%APPDATA%\LostIsland\config.json`.
+Settings are saved in `%APPDATA%\LoopIsland\config.json`.
 
 ## Claude Code status
 
 Open Settings › Claude Code and click **Install**, or run:
 
 ```powershell
-LostIsland.exe --setup-claude-status
+LoopIsland.exe --setup-claude-status
 ```
 
-It copies a small hook to `%LOCALAPPDATA%\LostIsland\LostIslandHook.exe`, backs up `~/.claude/settings.json`, and adds the hook to Claude Code's session events next to any hooks you already have. New sessions then report what they are doing. `--remove-claude-status` takes the hooks out again.
+It copies a small hook to `%LOCALAPPDATA%\LoopIsland\LoopIslandHook.exe`, backs up `~/.claude/settings.json`, and adds the hook to Claude Code's session events next to any hooks you already have. New sessions then report what they are doing. `--remove-claude-status` takes the hooks out again.
 
-The hook writes one small file per session to `%LOCALAPPDATA%\LostIsland\claude-status\`, prints nothing, and always exits 0, so it never slows Claude Code down or adds text to the conversation.
+The hook writes one small file per session to `%LOCALAPPDATA%\LoopIsland\claude-status\`, prints nothing, and always exits 0, so it never slows Claude Code down or adds text to the conversation.
 
 ## Command line
 
 ```text
-LostIsland.exe                     start (or open Settings when already running)
-LostIsland.exe --toggle            open or close the card
-LostIsland.exe --timer             start or pause the focus timer
-LostIsland.exe --settings [page]   open Settings (general, island, appearance, controls, activities, claude, keyboard, about)
-LostIsland.exe --quit              quit
+LoopIsland.exe                     start (or open Settings when already running)
+LoopIsland.exe --toggle            open or close the card
+LoopIsland.exe --wallpapers        open the wallpaper picker
+LoopIsland.exe --timer             start or pause the focus timer
+LoopIsland.exe --settings [page]   open Settings (general, island, appearance, controls, activities, claude, keyboard, about)
+LoopIsland.exe --quit              quit
 ```
+
+On Linux, use `loop-island` in place of `LoopIsland.exe`.
 
 ## How it works
 
@@ -118,7 +151,19 @@ LostIsland.exe --quit              quit
 - **No WinRT projection.** The WinRT interfaces it needs are declared by hand in `src/services/winrt_abi.h`. Their IIDs and method order were taken from the Windows SDK metadata, and the generic IIDs were computed with the WinRT algorithm.
 - **Icons are vectors** drawn in code in the style of SF Symbols, so they look the same on every Windows version and need no icon font.
 
+- **Adaptive color.** Twice a second the island copies a small strip of the screen behind it, scaled down to 24×6 pixels. On Windows, a screen copy without `CAPTUREBLT` leaves out layered windows, so the island never samples itself; under Wine it reads the strip just below its window instead. Brightness and hue ease to their new values over about half a second.
+- **Frame pacing.** While something moves, a small thread waits on `DwmFlush` and posts one frame message per composition pass, never queuing more than one. Where `DwmFlush` doesn't block (Wine, composition off), a 60 Hz high-resolution timer stands in.
+
 ## Build
+
+On Linux (any distribution with MinGW-w64, or with [llvm-mingw](https://github.com/mstorsjo/llvm-mingw)):
+
+```sh
+sudo apt install g++-mingw-w64-x86-64-posix cmake    # Debian/Ubuntu
+./scripts/build.sh                                    # writes build/LoopIsland.exe
+```
+
+`scripts/build.sh` uses llvm-mingw when `LLVM_MINGW` is set or one is found in `~/.local/opt`, and the system MinGW-w64 otherwise. GitHub Actions builds every push the same way and attaches the `.exe` and the Linux zip to tagged releases.
 
 On Windows with Visual Studio 2022 (Desktop C++ workload):
 
@@ -127,14 +172,6 @@ cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-On Linux, cross-compile with [llvm-mingw](https://github.com/mstorsjo/llvm-mingw):
-
-```sh
-LLVM_MINGW=/path/to/llvm-mingw ./scripts/build.sh   # writes build/LostIsland.exe
-```
-
-Releases are built with llvm-mingw 20261006. The MinGW build links statically, so the `.exe` needs no extra DLLs. The Visual Studio route is set up in CMake but has not been tested yet.
-
 ## Limits
 
 - Windows has no public way to switch Focus (Do Not Disturb) or Night light, so those buttons open their Settings pages.
@@ -142,10 +179,12 @@ Releases are built with llvm-mingw 20261006. The MinGW build links statically, s
 - **Wi-Fi** and **Bluetooth** need a radio that Windows exposes as switchable. Otherwise the buttons open Settings.
 - Notification banners are not shown. Reading other apps' notifications requires a packaged app with the notification listener capability.
 - The screenshots in this README were rendered with the release build running under Wine on Linux, so fonts differ from Windows (Noto Sans instead of Segoe UI).
-- The sample song and Claude request in the screenshots come from `LOSTISLAND_DEMO=1`, an environment variable that exists only for screenshots.
+- The sample song and Claude request in the screenshots come from `LOOPISLAND_DEMO=1`, an environment variable that exists only for screenshots.
+
+- On Linux the island is an X11 window through Wine, so on a Wayland session it needs XWayland. It can't sit above fullscreen Wayland-native apps.
 
 ## Credits
 
-Lost Island for Windows is by [byte4day](https://github.com/byte4day). It ports the design of [Lost Island for Sway](https://github.com/byte4day/lost-island-archcraft-sway), which grew out of [Marco Zorn's Lost Island](https://github.com/MarcoZorn/lost-island) (MIT). The island's proportions follow Apple's Live Activity guidelines for the Dynamic Island.
+Loop Island is based on [Lost Island for Windows](https://github.com/byte4day/lost-island-windows) by [byte4day](https://github.com/byte4day), a port of [Lost Island for Sway](https://github.com/byte4day/lost-island-archcraft-sway), which grew out of [Marco Zorn's Lost Island](https://github.com/MarcoZorn/lost-island) (MIT). The island's proportions follow Apple's Live Activity guidelines for the Dynamic Island.
 
 MIT License. See [LICENSE](LICENSE).

@@ -93,9 +93,9 @@ std::wstring g_city;   // copied from g_config on the UI thread
 
 bool httpGet(const std::wstring& host, const std::wstring& path, std::string& body) {
     bool ok = false;
-    HINTERNET s = WinHttpOpen(L"LostIsland/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+    HINTERNET s = WinHttpOpen(L"LoopIsland/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
                               WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!s) s = WinHttpOpen(L"LostIsland/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+    if (!s) s = WinHttpOpen(L"LoopIsland/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                             WINHTTP_NO_PROXY_BYPASS, 0);
     if (!s) return false;
     WinHttpSetTimeouts(s, 5000, 5000, 8000, 8000);

@@ -155,14 +155,14 @@ double clockSec() {
     return (double)c.QuadPart * period;
 }
 
-// LOSTISLAND_LOG=1 writes a trace to %TEMP%\lostisland.log (for debugging)
+// LOOPISLAND_LOG=1 writes a trace to %TEMP%\loopisland.log (for debugging)
 void logf(const char* fmt, ...) {
     static int on = -1;
-    if (on < 0) on = GetEnvironmentVariableA("LOSTISLAND_LOG", nullptr, 0) > 0;
+    if (on < 0) on = GetEnvironmentVariableA("LOOPISLAND_LOG", nullptr, 0) > 0;
     if (!on) return;
     char path[MAX_PATH];
     GetTempPathA(MAX_PATH, path);
-    strcat(path, "lostisland.log");
+    strcat(path, "loopisland.log");
     FILE* f = fopen(path, "a");
     if (!f) return;
     va_list ap;
@@ -894,7 +894,7 @@ void drawControlCell(Canvas& c, float cx, float top, const ControlDef& d, int id
     Color fill = Color(1, 1, 1, 0.12f).mix(Color(1, 1, 1, 0.17f), hov).mix(accent(), on);
     if (st.dim) fill = Color(1, 1, 1, 0.06f);
     c.FillCircle(cx, cy, rad * pr, fill);
-    Color ic = st.dim ? pal::ink3 : pal::ink;
+    Color ic = st.dim ? pal::ink3 : pal::ink.mix(pal::onAccent(), on);
     DrawIcon(c, st.icon, cx, cy, 20 * pr, ic, 1.6f);
     c.Text(d.label, Rect(cx - 30, cy + rad + 3, 60, 14), 10.5f, st.dim ? pal::ink3 : pal::ink, DWRITE_FONT_WEIGHT_SEMI_BOLD,
            Align::Center);
@@ -1016,7 +1016,7 @@ void drawRoundButton(Canvas& c, float cx, float cy, const std::wstring& id, cons
     Color bg = Color(1, 1, 1, 0.1f).mix(Color(1, 1, 1, 0.18f), easeHover(id)).mix(accent(), ease(L"on:" + id, active));
     float pr = 1 - 0.1f * easePress(id);
     c.FillCircle(cx, cy, 14 * pr, bg);
-    DrawIcon(c, icon, cx, cy, 15 * pr, pal::ink, 1.7f);
+    DrawIcon(c, icon, cx, cy, 15 * pr, pal::ink.mix(pal::onAccent(), ease(L"on:" + id, active)), 1.7f);
     hit(Rect(cx - 15, cy - 15, 30, 30), id);
 }
 
@@ -1710,7 +1710,7 @@ void contextMenu() {
     AppendMenuW(m, MF_STRING, 2, g_timerRun ? L"Pause focus timer" : L"Start focus timer");
     AppendMenuW(m, MF_STRING, 3, L"Settings…");
     AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(m, MF_STRING, 4, L"Quit Lost Island");
+    AppendMenuW(m, MF_STRING, 4, L"Quit Loop Island");
     POINT pt;
     GetCursorPos(&pt);
     SetForegroundWindow(g_hwnd);
@@ -1841,7 +1841,7 @@ void addTray() {
     g_nid.uCallbackMessage = WM_APP_TRAY;
     g_nid.hIcon = (HICON)LoadImageW(app::Instance(), MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
                                     GetSystemMetrics(SM_CYSMICON), 0);
-    wcscpy(g_nid.szTip, L"Lost Island");
+    wcscpy(g_nid.szTip, L"Loop Island");
     Shell_NotifyIconW(NIM_ADD, &g_nid);
 }
 
@@ -2130,13 +2130,13 @@ bool Create(HINSTANCE inst) {
     wc.lpfnWndProc = WndProc;
     wc.hInstance = inst;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.lpszClassName = L"LostIslandWindow";
+    wc.lpszClassName = L"LoopIslandWindow";
     wc.hIcon = LoadIconW(inst, MAKEINTRESOURCEW(1));
     if (!RegisterClassExW(&wc)) return false;
     g_wine = g_gfx.wine;
     pickMonitor();
-    g_hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"LostIslandWindow",
-                             L"Lost Island", WS_POPUP, g_mon.left, g_mon.top, 10, 10, nullptr, nullptr, inst, nullptr);
+    g_hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"LoopIslandWindow",
+                             L"Loop Island", WS_POPUP, g_mon.left, g_mon.top, 10, 10, nullptr, nullptr, inst, nullptr);
     if (!g_hwnd) return false;
     g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
 
@@ -2234,7 +2234,7 @@ void SetDemo(bool on) {
         double unix = ((((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime) / 1e7) - 11644473600.0;
         char buf[256];
         snprintf(buf, sizeof buf,
-                 "{\"session\":\"demo\",\"state\":\"needs\",\"detail\":\"Allow Bash?\",\"project\":\"lost-island\",\"pid\":0,\"updated\":%.0f}",
+                 "{\"session\":\"demo\",\"state\":\"needs\",\"detail\":\"Allow Bash?\",\"project\":\"loop-island\",\"pid\":0,\"updated\":%.0f}",
                  unix + 3600);
         HANDLE f = CreateFileW((dir + L"\\demo.json").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
         if (f != INVALID_HANDLE_VALUE) {

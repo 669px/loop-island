@@ -47,6 +47,7 @@ constexpr Color warn = Color::Hex(0xFFA94D);
 constexpr Color ok = Color::Hex(0x3DDC84);
 constexpr Color claude = Color::Hex(0xD97757);
 Color accent();   // from config
+Color onAccent(); // text and icons drawn on an accent fill: dark on light accents like Lagoon
 // The expanded card's background, top and bottom of a vertical gradient.
 Color cardTop();
 Color cardBottom();

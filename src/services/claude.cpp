@@ -1,8 +1,8 @@
 // Live Claude Code status.
 //
-// Claude Code runs `LostIslandHook.exe --claude-hook` on session events with
+// Claude Code runs `LoopIslandHook.exe --claude-hook` on session events with
 // a JSON payload on stdin. The hook writes one small file per session to
-// %LOCALAPPDATA%\LostIsland\claude-status\<session>.json and pokes the running
+// %LOCALAPPDATA%\LoopIsland\claude-status\<session>.json and pokes the running
 // island, which re-reads the folder. The hook never prints and always exits 0.
 #include <windows.h>
 #include <tlhelp32.h>
@@ -21,7 +21,7 @@
 namespace {
 const char* kEvents[] = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
                          "Notification", "Stop", "PreCompact", "SessionEnd"};
-const wchar_t* kMarker = L"LostIslandHook.exe";
+const wchar_t* kMarker = L"LoopIslandHook.exe";
 constexpr double kDoneSeconds = 8;
 constexpr double kStaleSeconds = 30 * 60;
 
@@ -32,7 +32,7 @@ std::thread g_watch;
 HANDLE g_stop = nullptr;
 
 std::wstring statusDir() { return sys::CacheDir() + L"\\claude-status"; }
-std::wstring hookExe() { return sys::CacheDir() + L"\\LostIslandHook.exe"; }
+std::wstring hookExe() { return sys::CacheDir() + L"\\LoopIslandHook.exe"; }
 std::wstring claudeDir() {
     PWSTR p = nullptr;
     std::wstring out;
@@ -193,7 +193,7 @@ bool loadSettings(json::Value& settings, std::wstring& path) {
 
 void backup(const std::wstring& path) {
     wchar_t suffix[48];
-    swprintf(suffix, 48, L".bak-lostisland-%lld", (long long)time(nullptr));
+    swprintf(suffix, 48, L".bak-loopisland-%lld", (long long)time(nullptr));
     CopyFileW(path.c_str(), (path + suffix).c_str(), TRUE);
 }
 }  // namespace
@@ -281,7 +281,7 @@ int RunHook() {
         v.set("updated", now());
         json::WriteFileAtomic(path, v.dump(0));
     }
-    if (HWND island = FindWindowW(L"LostIslandWindow", nullptr)) PostMessageW(island, WM_APP_SERVICE, SVC_CLAUDE, 1);
+    if (HWND island = FindWindowW(L"LoopIslandWindow", nullptr)) PostMessageW(island, WM_APP_SERVICE, SVC_CLAUDE, 1);
     return 0;
 }
 
@@ -361,7 +361,7 @@ bool Remove(std::wstring& message) {
         if (groups.size() == 0) hooks.remove(ev);
     }
     if (hooks.size() == 0) s.remove("hooks");
-    if (!changed) { message = L"Lost Island's hooks were not installed."; return true; }
+    if (!changed) { message = L"Loop Island's hooks were not installed."; return true; }
     backup(path);
     json::WriteFileAtomic(path, s.dump());
     message = L"Hooks removed. A backup of settings.json was kept next to it.";

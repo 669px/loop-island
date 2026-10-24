@@ -1,13 +1,13 @@
-// Lost Island for Windows: entry point, single instance, command line.
+// Loop Island: entry point, single instance, command line.
 //
-//   LostIsland.exe                     start (or open Settings if already running)
-//   LostIsland.exe --toggle            open or close the card
-//   LostIsland.exe --wallpapers        open the wallpaper picker
-//   LostIsland.exe --timer             start or pause the focus timer
-//   LostIsland.exe --settings [page]   open the control panel
-//   LostIsland.exe --quit              quit the running island
-//   LostIsland.exe --setup-claude-status / --remove-claude-status
-//   LostIsland.exe --claude-hook       (run by Claude Code, reads JSON on stdin)
+//   LoopIsland.exe                     start (or open Settings if already running)
+//   LoopIsland.exe --toggle            open or close the card
+//   LoopIsland.exe --wallpapers        open the wallpaper picker
+//   LoopIsland.exe --timer             start or pause the focus timer
+//   LoopIsland.exe --settings [page]   open the control panel
+//   LoopIsland.exe --quit              quit the running island
+//   LoopIsland.exe --setup-claude-status / --remove-claude-status
+//   LoopIsland.exe --claude-hook       (run by Claude Code, reads JSON on stdin)
 #include <windows.h>
 #include <objbase.h>
 #include <shellapi.h>
@@ -27,7 +27,7 @@ HINSTANCE g_inst = nullptr;
 
 void printConsole(const std::wstring& text) {
     if (!AttachConsole(ATTACH_PARENT_PROCESS)) {
-        MessageBoxW(nullptr, text.c_str(), L"Lost Island", MB_OK | MB_ICONINFORMATION);
+        MessageBoxW(nullptr, text.c_str(), L"Loop Island", MB_OK | MB_ICONINFORMATION);
         return;
     }
     HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -44,7 +44,7 @@ void printConsole(const std::wstring& text) {
 }
 
 bool sendToRunning(WPARAM cmd) {
-    HWND h = FindWindowW(L"LostIslandWindow", nullptr);
+    HWND h = FindWindowW(L"LoopIslandWindow", nullptr);
     if (!h) return false;
     DWORD pid = 0;
     GetWindowThreadProcessId(h, &pid);
@@ -96,11 +96,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         return ok ? 0 : 1;
     }
     if (cmd == L"--version") {
-        printConsole(L"Lost Island " LI_VERSION);
+        printConsole(L"Loop Island " LI_VERSION);
         return 0;
     }
 
-    HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\byte4day.LostIsland");
+    HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\LoopIsland");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         WPARAM c = CMD_SETTINGS;
         if (cmd == L"--toggle") c = CMD_TOGGLE;
@@ -117,7 +117,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
 
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     if (!g_gfx.Init()) {
-        MessageBoxW(nullptr, L"Direct2D is not available on this system.", L"Lost Island", MB_ICONERROR);
+        MessageBoxW(nullptr, L"Direct2D is not available on this system.", L"Loop Island", MB_ICONERROR);
         return 1;
     }
     bool firstRun = GetFileAttributesW(Config::Path().c_str()) == INVALID_FILE_ATTRIBUTES;
@@ -125,11 +125,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     if (firstRun) g_config.Save();
 
     if (!island::Create(inst)) {
-        MessageBoxW(nullptr, L"Could not create the island window.", L"Lost Island", MB_ICONERROR);
+        MessageBoxW(nullptr, L"Could not create the island window.", L"Loop Island", MB_ICONERROR);
         return 1;
     }
     if (firstRun || cmd == L"--settings") panel::Show(arg2.empty() ? L"general" : arg2.c_str());
-    if (GetEnvironmentVariableW(L"LOSTISLAND_DEMO", nullptr, 0) > 0) island::SetDemo(true);
+    if (GetEnvironmentVariableW(L"LOOPISLAND_DEMO", nullptr, 0) > 0) island::SetDemo(true);
     if (cmd == L"--debug-state" && !arg2.empty()) {
         static std::wstring state = arg2;
         SetTimer(nullptr, 0, 1200, [](HWND, UINT, UINT_PTR id, DWORD) {

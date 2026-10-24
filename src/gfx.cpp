@@ -10,6 +10,11 @@ Gfx g_gfx;
 
 Color pal::accent() { return Color::Hex(AccentRGB(g_config.accent)); }
 
+Color pal::onAccent() {
+    Color a = accent();
+    return 0.2126f * a.r + 0.7152f * a.g + 0.0722f * a.b > 0.55f ? Color::Hex(0x0B1A1C) : ink;
+}
+
 Color pal::cardTop() {
     if (g_config.cardStyle == L"graphite") return Color::Hex(0x24262C);
     if (g_config.cardStyle == L"black") return Color(0, 0, 0, 1);
@@ -511,7 +516,7 @@ void LayeredSurface::End(HWND hwnd, POINT screenPos) {
     if (hr == (HRESULT)D2DERR_RECREATE_TARGET) { Free(); return; }
     if (FAILED(hr)) {
         char msg[64];
-        snprintf(msg, sizeof msg, "LostIsland: EndDraw failed 0x%08lx\n", (unsigned long)hr);
+        snprintf(msg, sizeof msg, "LoopIsland: EndDraw failed 0x%08lx\n", (unsigned long)hr);
         OutputDebugStringA(msg);
     }
     SIZE size{w_, h_};

@@ -1,4 +1,4 @@
-// Lost Island for Windows: now playing, from the Global System Media
+// Loop Island: now playing, from the Global System Media
 // Transport Controls (Windows.Media.Control) through the raw WinRT ABI.
 //
 // One MTA worker thread owns every WinRT object. It polls about once a

@@ -1,4 +1,4 @@
-// Lost Island for Windows: hand-written WinRT ABI declarations.
+// Loop Island: hand-written WinRT ABI declarations.
 //
 // llvm-mingw ships no windows.media.control.h, and its C++ windows.foundation.h
 // does not compile (IReference<boolean> collides with IReference<BYTE>), so the

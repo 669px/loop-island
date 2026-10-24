@@ -1,4 +1,4 @@
-// Lost Island for Windows: Wi-Fi and Bluetooth on/off through
+// Loop Island: Wi-Fi and Bluetooth on/off through
 // Windows.Devices.Radios, using the raw WinRT ABI from winrt_abi.h
 // (llvm-mingw's windows.devices.radios.h pulls in a windows.foundation.h
 // that does not compile as C++).

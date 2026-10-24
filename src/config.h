@@ -1,4 +1,4 @@
-// User settings, saved to %APPDATA%\LostIsland\config.json.
+// User settings, saved to %APPDATA%\LoopIsland\config.json.
 #pragma once
 #include <windows.h>
 #include <string>

@@ -1,0 +1,37 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-exe:
+    # Cross-compiled on Linux, the same way contributors on Linux build it.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64-posix cmake
+      - name: Build
+        run: ./scripts/build.sh
+      - name: Package
+        run: |
+          mkdir -p dist/LoopIsland
+          cp build/LoopIsland.exe README.md LICENSE linux/loop-island media/icon.png dist/LoopIsland/
+          cd dist && zip -r LoopIsland-win64-linux.zip LoopIsland
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LoopIsland
+          path: dist/LoopIsland-win64-linux.zip
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/LoopIsland.exe
+            dist/LoopIsland-win64-linux.zip

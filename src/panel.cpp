@@ -1,4 +1,4 @@
-// Lost Island Settings: the control panel window.
+// Loop Island Settings: the control panel window.
 // Everything is custom drawn with Direct2D in the style of macOS System
 // Settings (dark appearance). The UI is immediate mode: each paint draws the
 // page and records clickable regions ("hots"); mouse and keyboard handlers act
@@ -384,7 +384,7 @@ void ButtonAt(const std::wstring& key, const std::wstring& label, D2D1_RECT_F r,
     else if (Hovered(key)) base = primary ? base.mix(kWhite, 0.12f) : Color(1, 1, 1, 0.17f);
     C().FillRound(r, 6, base);
     C().StrokeRound(Inset(r, 0.5f, 0.5f), 6, Color(1, 1, 1, 0.06f));
-    C().Text(label, r, 13, kWhite, kRegular, Align::Center);
+    C().Text(label, r, 13, primary ? pal::onAccent() : kWhite, kRegular, Align::Center);
     AddHot(r, key, Cur::Hand, std::move(click));
 }
 
@@ -597,7 +597,7 @@ Row PopupRow(const std::wstring& title, const std::wstring& sub, const Options& 
 void PageGeneral() {
     Row start;
     start.title = L"Start with Windows";
-    start.subtitle = L"Open Lost Island when you sign in";
+    start.subtitle = L"Open Loop Island when you sign in";
     start.trailing = [](D2D1_RECT_F rr) {
         SwitchCtl(L"sw:start", S.startWithWindows, rr.right, Mid(rr), [] {
             S.startWithWindows = !S.startWithWindows;
@@ -627,7 +627,7 @@ void PageGeneral() {
     reset.subtitle = L"Restore the defaults, including the card layout";
     reset.trailing = [](D2D1_RECT_F rr) {
         ButtonCtl(L"btn:reset", L"Reset…", rr.right, Mid(rr), false, [] {
-            if (MessageBoxW(S.hwnd, L"Reset all Lost Island settings to their defaults?", L"Lost Island",
+            if (MessageBoxW(S.hwnd, L"Reset all Loop Island settings to their defaults?", L"Loop Island",
                             MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
                 return;
             g_config.Reset();
@@ -744,7 +744,7 @@ void PageAppearance() {
         });
     };
     Group({accent, style,
-           ToggleRow(L"Adaptive island color", L"Rim and glow follow what is on screen behind the island",
+           ToggleRow(L"Adaptive island color", L"Edge and glow follow the colors behind it",
                      &g_config.adaptive)});
     Section(L"Clock");
     Group({ToggleRow(L"24-hour clock", L"", &g_config.clock24), ToggleRow(L"Show seconds", L"", &g_config.showSeconds)});
@@ -1013,21 +1013,21 @@ void PageAbout() {
     DrawWindowsMark(C(), pill.left + 7, Mid(pill), 5.5f, Color::Hex(0x4CC2FF));
     S.y = top + 96;
     float bw = BoxWidth();
-    C().Text(L"Lost Island", Rect(BoxLeft(), S.y, bw, 28), 22, pal::ink, kBold, Align::Center);
+    C().Text(L"Loop Island", Rect(BoxLeft(), S.y, bw, 28), 22, pal::ink, kBold, Align::Center);
     S.y += 30;
     C().Text(L"Version " LI_VERSION, Rect(BoxLeft(), S.y, bw, 18), 12, pal::ink2, kRegular, Align::Center);
     S.y += 26;
-    S.y += Paragraph(L"A Dynamic Island for Windows, written in C++ with Direct2D.", BoxLeft(), S.y, bw, 13, pal::ink,
+    S.y += Paragraph(L"A Dynamic Island for Windows and Linux (via Wine), written in C++ with Direct2D.", BoxLeft(), S.y, bw, 13, pal::ink,
                      kRegular, true) +
            18;
     float w1 = ButtonWidth(L"GitHub"), w2 = ButtonWidth(L"Report an issue");
     float bx = cx - (w1 + w2 + 10) / 2;
     ButtonAt(L"btn:github", L"GitHub", Rect(bx, S.y, w1, 24), false,
-             [] { sys::OpenUri(L"https://github.com/byte4day/lost-island-windows"); });
+             [] { sys::OpenUri(L"https://github.com/669px/loop-island"); });
     ButtonAt(L"btn:issue", L"Report an issue", Rect(bx + w1 + 10, S.y, w2, 24), false,
-             [] { sys::OpenUri(L"https://github.com/byte4day/lost-island-windows/issues"); });
+             [] { sys::OpenUri(L"https://github.com/669px/loop-island/issues"); });
     S.y += 24 + 28;
-    S.y += Paragraph(L"Based on Lost Island for Sway by byte4day, itself based on Marco Zorn's Lost Island (MIT).",
+    S.y += Paragraph(L"Based on Lost Island for Windows and Lost Island for Sway by byte4day, which grew out of Marco Zorn's Lost Island (MIT).",
                      BoxLeft(), S.y, bw, 11, pal::ink3, kRegular, true) +
            8;
 }
@@ -1105,7 +1105,7 @@ void DrawSidebar() {
         if (sel) C().FillRound(r, 6, pal::accent());
         else if (Hovered(key)) C().FillRound(r, 6, Color(1, 1, 1, 0.06f));
         Tile(Rect(r.left + 6, r.top + 4, 20, 20), kPages[i].tile, kPages[i].icon, 5);
-        C().Text(kPages[i].label, D2D1::RectF(r.left + 34, r.top, r.right - 6, r.bottom), 13, sel ? kWhite : pal::ink);
+        C().Text(kPages[i].label, D2D1::RectF(r.left + 34, r.top, r.right - 6, r.bottom), 13, sel ? pal::onAccent() : pal::ink);
         AddHot(r, key, Cur::Arrow, [i] {
             S.focus = Focus::Sidebar;
             SetPage(i);
@@ -1510,7 +1510,7 @@ void Create(int page) {
         wc.hIconSm = wc.hIcon;
         wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
         wc.hbrBackground = CreateSolidBrush(RGB(30, 30, 30));
-        wc.lpszClassName = L"LostIslandSettings";
+        wc.lpszClassName = L"LoopIslandSettings";
         registered = RegisterClassExW(&wc) != 0;
     }
     const DWORD style = WS_OVERLAPPEDWINDOW;
@@ -1519,7 +1519,7 @@ void Create(int page) {
     MONITORINFO mi{sizeof(mi)};
     GetMonitorInfoW(MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY), &mi);
     RECT work = mi.rcWork;
-    HWND hwnd = CreateWindowExW(0, L"LostIslandSettings", L"Lost Island Settings", style, work.left + 40,
+    HWND hwnd = CreateWindowExW(0, L"LoopIslandSettings", L"Loop Island Settings", style, work.left + 40,
                                 work.top + 40, 200, 200, nullptr, nullptr, inst, nullptr);
     if (!hwnd) return;
     S.hwnd = hwnd;
