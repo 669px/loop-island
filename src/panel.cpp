@@ -1027,7 +1027,7 @@ void PageAbout() {
     ButtonAt(L"btn:issue", L"Report an issue", Rect(bx + w1 + 10, S.y, w2, 24), false,
              [] { sys::OpenUri(L"https://github.com/669px/loop-island/issues"); });
     S.y += 24 + 28;
-    S.y += Paragraph(L"Based on Lost Island for Windows and Lost Island for Sway by byte4day, which grew out of Marco Zorn's Lost Island (MIT).",
+    S.y += Paragraph(L"Made by 669px. Open source under the MIT License.",
                      BoxLeft(), S.y, bw, 11, pal::ink3, kRegular, true) +
            8;
 }

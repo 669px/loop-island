@@ -6,9 +6,7 @@ A Dynamic Island for Windows 10/11 and Linux, written in C++ with Win32, Direct2
 
 <img src="media/card.png" alt="The open card in the Midnight style: a music player with seek bar, a Claude Code session row, round controls with Sound lit in Lagoon teal, a volume bar, Claude, Codex and Cursor launchers, and the timer line" width="420">
 
-Loop Island is a reworked version of [Lost Island for Windows](https://github.com/byte4day/lost-island-windows) by byte4day.
-
-## What's new compared with Lost Island 1.0.2
+## What's new in 1.1
 
 - **Adaptive island color.** The island samples the screen behind it twice a second. On dark wallpapers it gets a lifted fill, a rim and a soft glow tinted by the colors behind it, so it doesn't vanish. On light backgrounds it stays solid black with a deeper shadow. You can turn this off in Settings › Appearance.
 
@@ -185,6 +183,6 @@ cmake --build build --config Release
 
 ## Credits
 
-Loop Island is based on [Lost Island for Windows](https://github.com/byte4day/lost-island-windows) by [byte4day](https://github.com/byte4day), a port of [Lost Island for Sway](https://github.com/byte4day/lost-island-archcraft-sway), which grew out of [Marco Zorn's Lost Island](https://github.com/MarcoZorn/lost-island) (MIT). The island's proportions follow Apple's Live Activity guidelines for the Dynamic Island.
+Loop Island is made by [669px](https://github.com/669px). It builds on MIT-licensed open-source code by byte4day; that copyright notice is kept in [LICENSE](LICENSE) as the license requires. The island's proportions follow Apple's Live Activity guidelines for the Dynamic Island.
 
 MIT License. See [LICENSE](LICENSE).
